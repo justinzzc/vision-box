@@ -53,7 +53,7 @@ export const useDetectionStore = defineStore('detection', () => {
       
       // 检查响应是否包含file_id，表示上传成功
       if (response.file_id) {
-        message.success('文件上传成功')
+        // message.success('文件上传成功')
         return response
       } else {
         throw new Error('文件上传失败')

@@ -10,14 +10,15 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Form
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.models import DetectionTask, TaskStatus, DetectionType, FileRecord, User
 from app.api.v1.auth import get_current_active_user
+from loguru import logger
 
 settings = get_settings()
 router = APIRouter()
@@ -157,11 +158,13 @@ def validate_model_for_detection_type(model_name: str, detection_type: Detection
     return detection_type.value in supported_types
 
 
-async def run_detection_task(task_id: str, db: Session):
+async def run_detection_task(task_id: str, db: AsyncSession):
     """运行检测任务（后台任务）"""
     from app.services import DetectionService, VisualizationService
     
-    task = db.query(DetectionTask).filter(DetectionTask.id == task_id).first()
+    query = select(DetectionTask).where(DetectionTask.id == task_id)
+    result = await db.execute(query)
+    task = result.scalar_one_or_none()
     if not task:
         return
     
@@ -171,35 +174,36 @@ async def run_detection_task(task_id: str, db: Session):
     try:
         # 开始处理
         task.start_processing()
-        db.commit()
+        await db.commit()
         
         # 获取文件信息
-        file_record = db.query(FileRecord).filter(FileRecord.id == task.file_record_id).first()
+        file_result = await db.execute(select(FileRecord).where(FileRecord.id == task.file_record_id))
+        file_record = file_result.scalar_one_or_none()
         if not file_record or not os.path.exists(file_record.file_path):
             task.fail_task("文件不存在或已被删除")
-            db.commit()
+            await db.commit()
             return
         
         # 进度回调函数
-        def progress_callback(progress: float, step: str):
+        async def progress_callback(progress: float, step: str):
             task.update_progress(progress, step)
-            db.commit()
+            await db.commit()
         
         # 执行检测
-        progress_callback(10, "开始检测处理")
+        await progress_callback(10, "开始检测处理")
         
-        detection_result = detection_service.process_detection_task(
+        detection_result = await detection_service.process_detection_task(
             task, file_record, progress_callback
         )
         
         result_data = detection_result["result_data"]
         result_summary = detection_result["result_summary"]
         
-        progress_callback(85, "创建可视化结果")
+        await progress_callback(85, "创建可视化结果")
         
         # 创建可视化
         try:
-            visualization_paths = visualization_service.create_visualization_for_task(
+            visualization_paths = await visualization_service.create_visualization_for_task(
                 task, file_record, result_data, progress_callback
             )
             
@@ -214,12 +218,12 @@ async def run_detection_task(task_id: str, db: Session):
         
         # 完成任务
         task.complete_task(result_data, result_summary)
-        db.commit()
+        await db.commit()
         
     except Exception as e:
         logger.error(f"检测任务失败: {str(e)}")
         task.fail_task(str(e))
-        db.commit()
+        await db.commit()
 
 
 # API端点
@@ -228,16 +232,29 @@ async def create_detection_task(
     task_data: DetectionTaskCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """创建检测任务"""
+    from sqlalchemy import select
+    
     # 验证文件是否存在
-    file_record = db.query(FileRecord).filter(FileRecord.id == task_data.file_record_id).first()
+    logger.info(f"查找文件记录，file_record_id: {task_data.file_record_id}")
+    result = await db.execute(select(FileRecord).where(FileRecord.id == task_data.file_record_id))
+    file_record = result.scalar_one_or_none()
+    
     if not file_record:
+        # 查询所有文件记录用于调试
+        all_files_result = await db.execute(select(FileRecord.id, FileRecord.filename).limit(10))
+        all_files = all_files_result.fetchall()
+        logger.error(f"文件记录不存在，查找的ID: {task_data.file_record_id}")
+        logger.error(f"数据库中现有的文件记录: {all_files}")
+        
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="文件不存在"
+            detail=f"文件不存在，ID: {task_data.file_record_id}"
         )
+    
+    logger.info(f"找到文件记录: {file_record.filename}")
     
     # 验证模型是否支持检测类型
     if not validate_model_for_detection_type(task_data.model_name, task_data.detection_type):
@@ -271,8 +288,8 @@ async def create_detection_task(
         detection_task.set_postprocessing_params(task_data.postprocessing_params)
     
     db.add(detection_task)
-    db.commit()
-    db.refresh(detection_task)
+    await db.commit()
+    await db.refresh(detection_task)
     
     # 添加后台任务
     background_tasks.add_task(run_detection_task, detection_task.id, db)
@@ -387,13 +404,16 @@ async def list_detection_tasks(
 async def get_detection_result(
     task_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取检测结果"""
-    task = db.query(DetectionTask).filter(
+    from sqlalchemy import select
+    
+    result = await db.execute(select(DetectionTask).where(
         DetectionTask.id == task_id,
         DetectionTask.user_id == current_user.id
-    ).first()
+    ))
+    task = result.scalar_one_or_none()
     
     if not task:
         raise HTTPException(
@@ -420,13 +440,16 @@ async def retry_detection_task(
     task_id: str,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """重试检测任务"""
-    task = db.query(DetectionTask).filter(
+    from sqlalchemy import select
+    
+    result = await db.execute(select(DetectionTask).where(
         DetectionTask.id == task_id,
         DetectionTask.user_id == current_user.id
-    ).first()
+    ))
+    task = result.scalar_one_or_none()
     
     if not task:
         raise HTTPException(
@@ -442,7 +465,7 @@ async def retry_detection_task(
     
     # 重试任务
     task.retry_task()
-    db.commit()
+    await db.commit()
     
     # 添加后台任务
     background_tasks.add_task(run_detection_task, task.id, db)
@@ -454,13 +477,16 @@ async def retry_detection_task(
 async def delete_detection_task(
     task_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """删除检测任务"""
-    task = db.query(DetectionTask).filter(
+    from sqlalchemy import select
+    
+    result = await db.execute(select(DetectionTask).where(
         DetectionTask.id == task_id,
         DetectionTask.user_id == current_user.id
-    ).first()
+    ))
+    task = result.scalar_one_or_none()
     
     if not task:
         raise HTTPException(
@@ -479,8 +505,8 @@ async def delete_detection_task(
         os.remove(task.visualization_path)
     
     # 删除任务
-    db.delete(task)
-    db.commit()
+    await db.delete(task)
+    await db.commit()
     
     return {"message": "任务删除成功"}
 
@@ -517,15 +543,17 @@ async def download_detection_result(
     task_id: str,
     file_type: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """下载检测结果文件"""
     from fastapi.responses import FileResponse
+    from sqlalchemy import select
     
-    task = db.query(DetectionTask).filter(
+    result = await db.execute(select(DetectionTask).where(
         DetectionTask.id == task_id,
         DetectionTask.user_id == current_user.id
-    ).first()
+    ))
+    task = result.scalar_one_or_none()
     
     if not task:
         raise HTTPException(
@@ -547,7 +575,8 @@ async def download_detection_result(
         from app.services import VisualizationService
         visualization_service = VisualizationService()
         
-        file_record = db.query(FileRecord).filter(FileRecord.id == task.file_record_id).first()
+        file_result = await db.execute(select(FileRecord).where(FileRecord.id == task.file_record_id))
+        file_record = file_result.scalar_one_or_none()
         if file_record and task.result_data:
             try:
                 csv_path = visualization_service.export_detection_results(
@@ -579,15 +608,17 @@ async def export_detection_results(
     task_id: str,
     format: str = Form("json"),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """导出检测结果"""
     from app.services import VisualizationService
+    from sqlalchemy import select
     
-    task = db.query(DetectionTask).filter(
+    result = await db.execute(select(DetectionTask).where(
         DetectionTask.id == task_id,
         DetectionTask.user_id == current_user.id
-    ).first()
+    ))
+    task = result.scalar_one_or_none()
     
     if not task:
         raise HTTPException(
@@ -601,7 +632,8 @@ async def export_detection_results(
             detail="只能导出已完成的任务结果"
         )
     
-    file_record = db.query(FileRecord).filter(FileRecord.id == task.file_record_id).first()
+    file_result = await db.execute(select(FileRecord).where(FileRecord.id == task.file_record_id))
+    file_record = file_result.scalar_one_or_none()
     if not file_record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -636,7 +668,7 @@ async def get_detection_history(
     detection_type_filter: Optional[DetectionType] = Query(None, description="检测类型过滤"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取检测历史记录"""
     return await list_detection_tasks(
@@ -653,29 +685,43 @@ async def get_detection_history(
 @router.get("/stats/summary")
 async def get_detection_stats(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取检测统计信息"""
-    total_tasks = db.query(DetectionTask).filter(DetectionTask.user_id == current_user.id).count()
-    completed_tasks = db.query(DetectionTask).filter(
+    from sqlalchemy import select, func
+    
+    # 总任务数
+    total_result = await db.execute(select(func.count(DetectionTask.id)).where(DetectionTask.user_id == current_user.id))
+    total_tasks = total_result.scalar()
+    
+    # 完成任务数
+    completed_result = await db.execute(select(func.count(DetectionTask.id)).where(
         DetectionTask.user_id == current_user.id,
         DetectionTask.status == TaskStatus.COMPLETED
-    ).count()
-    failed_tasks = db.query(DetectionTask).filter(
+    ))
+    completed_tasks = completed_result.scalar()
+    
+    # 失败任务数
+    failed_result = await db.execute(select(func.count(DetectionTask.id)).where(
         DetectionTask.user_id == current_user.id,
         DetectionTask.status == TaskStatus.FAILED
-    ).count()
-    running_tasks = db.query(DetectionTask).filter(
+    ))
+    failed_tasks = failed_result.scalar()
+    
+    # 运行中任务数
+    running_result = await db.execute(select(func.count(DetectionTask.id)).where(
         DetectionTask.user_id == current_user.id,
         DetectionTask.status == TaskStatus.PROCESSING
-    ).count()
+    ))
+    running_tasks = running_result.scalar()
     
     # 计算平均处理时间
-    avg_processing_time_result = db.query(db.func.avg(DetectionTask.processing_time)).filter(
+    avg_result = await db.execute(select(func.avg(DetectionTask.processing_time)).where(
         DetectionTask.user_id == current_user.id,
         DetectionTask.status == TaskStatus.COMPLETED,
         DetectionTask.processing_time.isnot(None)
-    ).scalar()
+    ))
+    avg_processing_time_result = avg_result.scalar()
     avg_processing_time = float(avg_processing_time_result) if avg_processing_time_result else 0.0
     
     return {

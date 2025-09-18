@@ -13,7 +13,8 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Form
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from pydantic import BaseModel
 from PIL import Image
 import cv2
@@ -144,7 +145,7 @@ async def upload_file(
     description: Optional[str] = Form(None),
     is_public: bool = Form(False),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """上传文件"""
     from app.services import FileService
@@ -181,8 +182,8 @@ async def upload_file(
         )
         
         db.add(file_record)
-        db.commit()
-        db.refresh(file_record)
+        await db.commit()
+        await db.refresh(file_record)
         
         return UploadResponse(
             file_id=file_record.id,
@@ -206,16 +207,16 @@ async def list_files(
     file_type: Optional[str] = Query(None, description="文件类型过滤"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取文件列表"""
-    query = db.query(FileRecord)
+    query = select(FileRecord)
     
     # 文件类型过滤
     if file_type:
         try:
             file_type_enum = FileType(file_type)
-            query = query.filter(FileRecord.file_type == file_type_enum)
+            query = query.where(FileRecord.file_type == file_type_enum)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -224,14 +225,22 @@ async def list_files(
     
     # 搜索过滤
     if search:
-        query = query.filter(FileRecord.filename.contains(search))
+        query = query.where(FileRecord.filename.contains(search))
     
     # 计算总数
-    total = query.count()
+    count_query = select(func.count()).select_from(FileRecord)
+    if file_type:
+        count_query = count_query.where(FileRecord.file_type == file_type_enum)
+    if search:
+        count_query = count_query.where(FileRecord.filename.contains(search))
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
     
     # 分页
     offset = (page - 1) * page_size
-    files = query.offset(offset).limit(page_size).all()
+    query = query.offset(offset).limit(page_size)
+    result = await db.execute(query)
+    files = result.scalars().all()
     
     # 转换为响应格式
     file_list = []
@@ -266,10 +275,12 @@ async def list_files(
 async def get_file_info(
     file_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取文件信息"""
-    file_record = db.query(FileRecord).filter(FileRecord.id == file_id).first()
+    query = select(FileRecord).where(FileRecord.id == file_id)
+    result = await db.execute(query)
+    file_record = result.scalar_one_or_none()
     
     if not file_record:
         raise HTTPException(
@@ -279,7 +290,7 @@ async def get_file_info(
     
     # 更新访问时间
     file_record.update_access_time()
-    db.commit()
+    await db.commit()
     
     return FileInfo(
         id=file_record.id,
@@ -300,10 +311,12 @@ async def get_file_info(
 async def download_file(
     file_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """下载文件"""
-    file_record = db.query(FileRecord).filter(FileRecord.id == file_id).first()
+    query = select(FileRecord).where(FileRecord.id == file_id)
+    result = await db.execute(query)
+    file_record = result.scalar_one_or_none()
     
     if not file_record:
         raise HTTPException(
@@ -319,7 +332,7 @@ async def download_file(
     
     # 更新访问时间
     file_record.update_access_time()
-    db.commit()
+    await db.commit()
     
     return FileResponse(
         path=file_record.file_path,
@@ -332,10 +345,12 @@ async def download_file(
 async def preview_file(
     file_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """预览文件"""
-    file_record = db.query(FileRecord).filter(FileRecord.id == file_id).first()
+    query = select(FileRecord).where(FileRecord.id == file_id)
+    result = await db.execute(query)
+    file_record = result.scalar_one_or_none()
     
     if not file_record:
         raise HTTPException(
@@ -351,7 +366,7 @@ async def preview_file(
     
     # 更新访问时间
     file_record.update_access_time()
-    db.commit()
+    await db.commit()
     
     # 对于图片，直接返回
     if file_record.is_image:
@@ -380,10 +395,12 @@ async def preview_file(
 async def delete_file(
     file_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """删除文件"""
-    file_record = db.query(FileRecord).filter(FileRecord.id == file_id).first()
+    query = select(FileRecord).where(FileRecord.id == file_id)
+    result = await db.execute(query)
+    file_record = result.scalar_one_or_none()
     
     if not file_record:
         raise HTTPException(
@@ -397,13 +414,13 @@ async def delete_file(
             os.remove(file_record.file_path)
         
         # 删除数据库记录
-        db.delete(file_record)
-        db.commit()
+        await db.delete(file_record)
+        await db.commit()
         
         return {"message": "文件删除成功"}
         
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"文件删除失败: {str(e)}"
@@ -415,7 +432,7 @@ async def batch_upload_files(
     files: List[UploadFile] = File(...),
     is_public: bool = Form(False),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """批量上传文件"""
     if len(files) > settings.MAX_BATCH_UPLOAD:
@@ -457,16 +474,28 @@ async def batch_upload_files(
 @router.get("/stats/summary")
 async def get_file_stats(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取文件统计信息"""
-    total_files = db.query(FileRecord).count()
-    total_images = db.query(FileRecord).filter(FileRecord.file_type == FileType.IMAGE).count()
-    total_videos = db.query(FileRecord).filter(FileRecord.file_type == FileType.VIDEO).count()
+    # 统计文件总数
+    total_files_query = select(func.count()).select_from(FileRecord)
+    total_files_result = await db.execute(total_files_query)
+    total_files = total_files_result.scalar()
+    
+    # 统计图片数量
+    total_images_query = select(func.count()).select_from(FileRecord).where(FileRecord.file_type == FileType.IMAGE)
+    total_images_result = await db.execute(total_images_query)
+    total_images = total_images_result.scalar()
+    
+    # 统计视频数量
+    total_videos_query = select(func.count()).select_from(FileRecord).where(FileRecord.file_type == FileType.VIDEO)
+    total_videos_result = await db.execute(total_videos_query)
+    total_videos = total_videos_result.scalar()
     
     # 计算总存储大小
-    total_size_result = db.query(db.func.sum(FileRecord.file_size)).scalar()
-    total_size = total_size_result or 0
+    total_size_query = select(func.sum(FileRecord.file_size))
+    total_size_result = await db.execute(total_size_query)
+    total_size = total_size_result.scalar() or 0
     
     return {
         "total_files": total_files,

@@ -7,7 +7,8 @@
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, UploadFile, File
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_db
@@ -106,15 +107,17 @@ async def get_user_profile(
 async def update_user_profile(
     user_update: UserUpdate,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """更新用户资料"""
     # 检查邮箱是否已被其他用户使用
     if user_update.email and user_update.email != current_user.email:
-        existing_user = db.query(User).filter(
+        existing_user_query = select(User).where(
             User.email == user_update.email,
             User.id != current_user.id
-        ).first()
+        )
+        existing_user_result = await db.execute(existing_user_query)
+        existing_user = existing_user_result.scalar_one_or_none()
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -130,8 +133,8 @@ async def update_user_profile(
         current_user.bio = user_update.bio
     
     current_user.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(current_user)
+    await db.commit()
+    await db.refresh(current_user)
     
     return UserProfile(**current_user.to_dict())
 
@@ -140,7 +143,7 @@ async def update_user_profile(
 async def upload_avatar(
     avatar: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """上传头像"""
     # 验证文件类型
@@ -168,7 +171,7 @@ async def upload_avatar(
     # 更新用户头像URL
     current_user.avatar_url = avatar_url
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return {
         "message": "头像上传成功",
@@ -180,7 +183,7 @@ async def upload_avatar(
 async def update_password(
     password_update: PasswordUpdate,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """更新密码"""
     # 验证当前密码
@@ -207,7 +210,7 @@ async def update_password(
     # 更新密码
     current_user.password_hash = get_password_hash(password_update.new_password)
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return {"message": "密码更新成功"}
 
@@ -234,7 +237,7 @@ async def get_user_preferences(
 async def update_user_preferences(
     preferences: UserPreferences,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """更新用户偏好设置"""
     import json
@@ -242,7 +245,7 @@ async def update_user_preferences(
     # 保存偏好设置
     current_user.preferences = json.dumps(preferences.dict(), ensure_ascii=False)
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return preferences
 
@@ -250,27 +253,38 @@ async def update_user_preferences(
 @router.get("/stats", response_model=UserStats)
 async def get_user_stats(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取用户统计信息"""
     # 任务统计
-    total_tasks = db.query(DetectionTask).filter(DetectionTask.user_id == current_user.id).count()
-    completed_tasks = db.query(DetectionTask).filter(
+    total_tasks_query = select(func.count()).select_from(DetectionTask).where(DetectionTask.user_id == current_user.id)
+    total_tasks_result = await db.execute(total_tasks_query)
+    total_tasks = total_tasks_result.scalar()
+    
+    completed_tasks_query = select(func.count()).select_from(DetectionTask).where(
         DetectionTask.user_id == current_user.id,
         DetectionTask.status == "completed"
-    ).count()
-    failed_tasks = db.query(DetectionTask).filter(
+    )
+    completed_tasks_result = await db.execute(completed_tasks_query)
+    completed_tasks = completed_tasks_result.scalar()
+    
+    failed_tasks_query = select(func.count()).select_from(DetectionTask).where(
         DetectionTask.user_id == current_user.id,
         DetectionTask.status == "failed"
-    ).count()
+    )
+    failed_tasks_result = await db.execute(failed_tasks_query)
+    failed_tasks = failed_tasks_result.scalar()
     
     # 文件统计
     # 注意：这里假设文件与用户有关联，实际可能需要调整
-    total_files = db.query(FileRecord).count()  # 简化处理
+    total_files_query = select(func.count()).select_from(FileRecord)  # 简化处理
+    total_files_result = await db.execute(total_files_query)
+    total_files = total_files_result.scalar()
     
     # 存储统计
-    total_storage_result = db.query(db.func.sum(FileRecord.file_size)).scalar()
-    total_storage_bytes = total_storage_result or 0
+    total_storage_query = select(func.sum(FileRecord.file_size))
+    total_storage_result = await db.execute(total_storage_query)
+    total_storage_bytes = total_storage_result.scalar() or 0
     total_storage_mb = round(total_storage_bytes / (1024 * 1024), 2)
     
     # 最后活动时间
@@ -291,13 +305,15 @@ async def get_user_stats(
 async def get_user_activity(
     limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取用户活动记录"""
     # 获取最近的检测任务作为活动记录
-    recent_tasks = db.query(DetectionTask).filter(
+    recent_tasks_query = select(DetectionTask).where(
         DetectionTask.user_id == current_user.id
-    ).order_by(DetectionTask.created_at.desc()).limit(limit).all()
+    ).order_by(DetectionTask.created_at.desc()).limit(limit)
+    recent_tasks_result = await db.execute(recent_tasks_query)
+    recent_tasks = recent_tasks_result.scalars().all()
     
     activities = []
     for task in recent_tasks:
@@ -324,7 +340,7 @@ async def get_user_activity(
 async def delete_user_account(
     password: str = Form(...),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """删除用户账户"""
     # 验证密码
@@ -339,7 +355,7 @@ async def delete_user_account(
     # 为了简化，我们只是停用账户
     current_user.is_active = False
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return {"message": "账户已停用"}
 
@@ -352,15 +368,17 @@ async def list_all_users(
     search: Optional[str] = Query(None, description="搜索关键词"),
     is_active: Optional[bool] = Query(None, description="活跃状态过滤"),
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取所有用户列表（管理员）"""
-    query = db.query(User)
+    from sqlalchemy import or_
+    
+    query = select(User)
     
     # 搜索过滤
     if search:
-        query = query.filter(
-            db.or_(
+        query = query.where(
+            or_(
                 User.username.contains(search),
                 User.email.contains(search),
                 User.full_name.contains(search)
@@ -369,17 +387,32 @@ async def list_all_users(
     
     # 活跃状态过滤
     if is_active is not None:
-        query = query.filter(User.is_active == is_active)
+        query = query.where(User.is_active == is_active)
     
     # 按创建时间倒序
     query = query.order_by(User.created_at.desc())
     
     # 计算总数
-    total = query.count()
+    count_query = select(func.count()).select_from(User)
+    if search:
+        count_query = count_query.where(
+            or_(
+                User.username.contains(search),
+                User.email.contains(search),
+                User.full_name.contains(search)
+            )
+        )
+    if is_active is not None:
+        count_query = count_query.where(User.is_active == is_active)
+    
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
     
     # 分页
     offset = (page - 1) * page_size
-    users = query.offset(offset).limit(page_size).all()
+    query = query.offset(offset).limit(page_size)
+    result = await db.execute(query)
+    users = result.scalars().all()
     
     # 转换为响应格式
     user_list = [UserProfile(**user.to_dict()) for user in users]
@@ -400,10 +433,12 @@ async def update_user_status(
     user_id: str,
     is_active: bool = Form(...),
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """更新用户状态（管理员）"""
-    user = db.query(User).filter(User.id == user_id).first()
+    user_query = select(User).where(User.id == user_id)
+    user_result = await db.execute(user_query)
+    user = user_result.scalar_one_or_none()
     
     if not user:
         raise HTTPException(
@@ -420,7 +455,7 @@ async def update_user_status(
     
     user.is_active = is_active
     user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return {
         "message": f"用户状态已更新为 {'激活' if is_active else '停用'}",
@@ -433,10 +468,12 @@ async def update_user_status(
 async def get_user_stats_admin(
     user_id: str,
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取指定用户统计信息（管理员）"""
-    user = db.query(User).filter(User.id == user_id).first()
+    user_query = select(User).where(User.id == user_id)
+    user_result = await db.execute(user_query)
+    user = user_result.scalar_one_or_none()
     
     if not user:
         raise HTTPException(
@@ -446,19 +483,31 @@ async def get_user_stats_admin(
     
     # 复用用户统计逻辑
     # 这里可以调用上面的get_user_stats函数，但需要传入指定用户
-    total_tasks = db.query(DetectionTask).filter(DetectionTask.user_id == user_id).count()
-    completed_tasks = db.query(DetectionTask).filter(
+    total_tasks_query = select(func.count()).select_from(DetectionTask).where(DetectionTask.user_id == user_id)
+    total_tasks_result = await db.execute(total_tasks_query)
+    total_tasks = total_tasks_result.scalar()
+    
+    completed_tasks_query = select(func.count()).select_from(DetectionTask).where(
         DetectionTask.user_id == user_id,
         DetectionTask.status == "completed"
-    ).count()
-    failed_tasks = db.query(DetectionTask).filter(
+    )
+    completed_tasks_result = await db.execute(completed_tasks_query)
+    completed_tasks = completed_tasks_result.scalar()
+    
+    failed_tasks_query = select(func.count()).select_from(DetectionTask).where(
         DetectionTask.user_id == user_id,
         DetectionTask.status == "failed"
-    ).count()
+    )
+    failed_tasks_result = await db.execute(failed_tasks_query)
+    failed_tasks = failed_tasks_result.scalar()
     
-    total_files = db.query(FileRecord).count()  # 简化处理
-    total_storage_result = db.query(db.func.sum(FileRecord.file_size)).scalar()
-    total_storage_bytes = total_storage_result or 0
+    total_files_query = select(func.count()).select_from(FileRecord)  # 简化处理
+    total_files_result = await db.execute(total_files_query)
+    total_files = total_files_result.scalar()
+    
+    total_storage_query = select(func.sum(FileRecord.file_size))
+    total_storage_result = await db.execute(total_storage_query)
+    total_storage_bytes = total_storage_result.scalar() or 0
     total_storage_mb = round(total_storage_bytes / (1024 * 1024), 2)
     
     last_activity = user.last_login_at or user.updated_at

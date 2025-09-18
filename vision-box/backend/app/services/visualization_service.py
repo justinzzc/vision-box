@@ -8,6 +8,7 @@
 import os
 import cv2
 import json
+import re
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
@@ -390,9 +391,11 @@ class VisualizationService:
                 }
             }
             
-            # 生成输出文件名
+            # 生成输出文件名 - 移除Windows不支持的字符
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_filename = f"{task.task_name}_{timestamp}"
+            # 清理任务名称，移除Windows文件名中不允许的字符
+            safe_task_name = re.sub(r'[<>:"/\\|?*]', '_', task.task_name)
+            base_filename = f"{safe_task_name}_{timestamp}"
             
             if format.lower() == "json":
                 output_path = str(self.output_dir / f"{base_filename}.json")
@@ -489,7 +492,7 @@ class VisualizationService:
             logger.error(f"导出检测结果失败: {str(e)}")
             raise Exception(f"导出检测结果失败: {str(e)}")
     
-    def create_visualization_for_task(
+    async def create_visualization_for_task(
         self,
         task: DetectionTask,
         file_record: FileRecord,
@@ -501,7 +504,7 @@ class VisualizationService:
             visualization_paths = {}
             
             if progress_callback:
-                progress_callback(10, "开始创建可视化")
+                await progress_callback(10, "开始创建可视化")
             
             if file_record.is_image:
                 # 图像可视化
@@ -514,7 +517,7 @@ class VisualizationService:
                     visualization_paths["main"] = viz_path
                 
                 if progress_callback:
-                    progress_callback(60, "图像可视化完成")
+                    await progress_callback(60, "图像可视化完成")
                 
                 # 创建摘要图像
                 summary_path = self.create_detection_summary_image(
@@ -540,7 +543,7 @@ class VisualizationService:
                     visualization_paths["main"] = viz_path
             
             if progress_callback:
-                progress_callback(90, "导出检测结果")
+                await progress_callback(90, "导出检测结果")
             
             # 导出JSON结果
             json_path = self.export_detection_results(
@@ -555,7 +558,7 @@ class VisualizationService:
             visualization_paths["csv"] = csv_path
             
             if progress_callback:
-                progress_callback(100, "可视化创建完成")
+                await progress_callback(100, "可视化创建完成")
             
             logger.info(f"任务 {task.id} 可视化创建完成: {visualization_paths}")
             return visualization_paths

@@ -410,8 +410,12 @@ const startDetection = async () => {
     progressPercent.value = 0
     
     const params = {
-      file_id: uploadedFile.value.id,
-      ...detectionParams.value
+      file_record_id: uploadedFile.value.id,
+      task_name: `检测任务_${new Date().toLocaleString()}`,
+      detection_type: 'object_detection',
+      confidence_threshold: detectionParams.value.confidence,
+      model_name: detectionParams.value.model_name,
+      classes: detectionParams.value.classes
     }
     
     await detectionStore.startDetection(params)

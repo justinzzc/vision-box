@@ -46,7 +46,10 @@ docker-compose up -d --build
 # 1. 启动后端服务
 cd backend
 pip install -r requirements.txt
+
 uvicorn main:app --reload
+# 或者
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 2. 启动前端服务
 cd frontend

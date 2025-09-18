@@ -71,7 +71,27 @@ class DetectionService:
                 raise ValueError(f"不支持的模型: {model_name}")
             
             model_file = self.supported_models[model_name]
-            model = YOLO(model_file)
+            
+            # 修复PyTorch 2.6的weights_only参数问题
+            import torch
+            import os
+            
+            # 方法1：使用monkey patch临时修改torch.load的默认参数
+            original_load = torch.load
+            
+            def patched_load(*args, **kwargs):
+                # 如果没有显式设置weights_only，则设置为False
+                if 'weights_only' not in kwargs:
+                    kwargs['weights_only'] = False
+                return original_load(*args, **kwargs)
+            
+            try:
+                # 临时替换torch.load
+                torch.load = patched_load
+                model = YOLO(model_file)
+            finally:
+                # 恢复原始的torch.load
+                torch.load = original_load
             
             # 缓存模型
             self.models_cache[model_name] = model
@@ -163,7 +183,7 @@ class DetectionService:
             logger.error(f"目标检测失败: {str(e)}")
             raise Exception(f"目标检测失败: {str(e)}")
     
-    def detect_video(
+    async def detect_video(
         self,
         video_path: str,
         model_name: str = "yolov8n",
@@ -242,7 +262,7 @@ class DetectionService:
                 # 进度回调
                 if progress_callback:
                     progress = (processed_frames / (total_frames // (frame_skip + 1))) * 100
-                    progress_callback(progress, f"处理第 {processed_frames} 帧")
+                    await progress_callback(progress, f"处理第 {processed_frames} 帧")
             
             cap.release()
             
@@ -366,7 +386,7 @@ class DetectionService:
         
         return {"error": "未知的检测类型"}
     
-    def process_detection_task(
+    async def process_detection_task(
         self,
         task: DetectionTask,
         file_record: FileRecord,
@@ -382,7 +402,7 @@ class DetectionService:
             # 根据文件类型选择检测方法
             if file_record.is_image:
                 if progress_callback:
-                    progress_callback(20, "开始图像检测")
+                    await progress_callback(20, "开始图像检测")
                 
                 result_data = self.detect_objects(
                     image_path=file_path,
@@ -393,19 +413,19 @@ class DetectionService:
                 )
                 
                 if progress_callback:
-                    progress_callback(80, "图像检测完成")
+                    await progress_callback(80, "图像检测完成")
             
             elif file_record.is_video:
                 if progress_callback:
-                    progress_callback(20, "开始视频检测")
+                    await progress_callback(20, "开始视频检测")
                 
-                def video_progress(progress, step):
+                async def video_progress(progress, step):
                     if progress_callback:
                         # 将视频处理进度映射到20-80%
                         mapped_progress = 20 + (progress * 0.6)
-                        progress_callback(mapped_progress, step)
+                        await progress_callback(mapped_progress, step)
                 
-                result_data = self.detect_video(
+                result_data = await self.detect_video(
                     video_path=file_path,
                     model_name=task.model_name,
                     confidence_threshold=task.confidence_threshold,
@@ -416,7 +436,7 @@ class DetectionService:
                 )
                 
                 if progress_callback:
-                    progress_callback(80, "视频检测完成")
+                    await progress_callback(80, "视频检测完成")
             
             else:
                 raise Exception(f"不支持的文件类型: {file_record.file_type}")
@@ -447,7 +467,7 @@ class DetectionService:
                 }
             
             if progress_callback:
-                progress_callback(100, "检测任务完成")
+                await progress_callback(100, "检测任务完成")
             
             return {
                 "result_data": result_data,

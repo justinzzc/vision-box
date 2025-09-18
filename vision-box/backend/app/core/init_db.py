@@ -8,7 +8,8 @@ import asyncio
 import logging
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from app.core.database import engine, SessionLocal, Base
+from app.core.database import engine, AsyncSessionLocal, Base
+from sqlalchemy import select, func
 from app.core.config import get_settings
 from app.models import get_all_models, User, FileRecord, DetectionTask
 from app.core.security import get_password_hash
@@ -63,69 +64,66 @@ async def drop_tables():
 async def create_default_admin():
     """创建默认管理员用户"""
     try:
-        db = SessionLocal()
-        
-        # 检查是否已存在管理员
-        existing_admin = db.query(User).filter(User.username == "admin").first()
-        if existing_admin:
-            logger.info("管理员用户已存在，跳过创建")
-            db.close()
+        async with AsyncSessionLocal() as db:
+            # 检查是否已存在管理员
+            existing_admin_query = select(User).where(User.username == "admin")
+            existing_admin_result = await db.execute(existing_admin_query)
+            existing_admin = existing_admin_result.scalar_one_or_none()
+            
+            if existing_admin:
+                logger.info("管理员用户已存在，跳过创建")
+                return True
+            
+            # 创建管理员用户
+            admin_user = User(
+                id=str(uuid.uuid4()),
+                username="admin",
+                email="admin@visionbox.com",
+                password_hash=get_password_hash("admin123"),
+                full_name="系统管理员",
+                is_active=True,
+                is_superuser=True,
+                is_verified=True,
+                bio="Vision Box 系统管理员",
+                created_at=datetime.utcnow()
+            )
+            
+            db.add(admin_user)
+            await db.commit()
+            await db.refresh(admin_user)
+            
+            logger.info(f"管理员用户创建成功: {admin_user.username} (ID: {admin_user.id})")
             return True
-        
-        # 创建管理员用户
-        admin_user = User(
-            id=str(uuid.uuid4()),
-            username="admin",
-            email="admin@visionbox.com",
-            password_hash=get_password_hash("admin123"),
-            full_name="系统管理员",
-            is_active=True,
-            is_superuser=True,
-            is_verified=True,
-            bio="Vision Box 系统管理员",
-            created_at=datetime.utcnow()
-        )
-        
-        db.add(admin_user)
-        db.commit()
-        db.refresh(admin_user)
-        
-        logger.info(f"管理员用户创建成功: {admin_user.username} (ID: {admin_user.id})")
-        db.close()
-        return True
         
     except SQLAlchemyError as e:
         logger.error(f"创建管理员用户失败: {e}")
-        if 'db' in locals():
-            db.rollback()
-            db.close()
         return False
     except Exception as e:
         logger.error(f"创建管理员用户时发生未知错误: {e}")
-        if 'db' in locals():
-            db.rollback()
-            db.close()
         return False
 
 
 async def create_sample_data():
     """创建示例数据"""
     try:
-        db = SessionLocal()
-        
-        # 检查是否已有数据
-        existing_tasks = db.query(DetectionTask).count()
-        if existing_tasks > 0:
-            logger.info("示例数据已存在，跳过创建")
-            db.close()
-            return True
-        
-        # 获取管理员用户
-        admin_user = db.query(User).filter(User.username == "admin").first()
-        if not admin_user:
-            logger.warning("未找到管理员用户，跳过创建示例数据")
-            db.close()
-            return False
+        async with AsyncSessionLocal() as db:
+            # 检查是否已有数据
+            existing_tasks_query = select(func.count()).select_from(DetectionTask)
+            existing_tasks_result = await db.execute(existing_tasks_query)
+            existing_tasks = existing_tasks_result.scalar()
+            
+            if existing_tasks > 0:
+                logger.info("示例数据已存在，跳过创建")
+                return True
+            
+            # 获取管理员用户
+            admin_user_query = select(User).where(User.username == "admin")
+            admin_user_result = await db.execute(admin_user_query)
+            admin_user = admin_user_result.scalar_one_or_none()
+            
+            if not admin_user:
+                logger.warning("未找到管理员用户，跳过创建示例数据")
+                return False
         
         # 创建示例文件记录
         sample_files = [
@@ -153,17 +151,17 @@ async def create_sample_data():
             }
         ]
         
-        file_records = []
-        for file_data in sample_files:
-            file_record = FileRecord(
-                id=str(uuid.uuid4()),
-                **file_data,
-                uploaded_at=datetime.utcnow()
-            )
-            db.add(file_record)
-            file_records.append(file_record)
-        
-        db.commit()
+            file_records = []
+            for file_data in sample_files:
+                file_record = FileRecord(
+                    id=str(uuid.uuid4()),
+                    **file_data,
+                    uploaded_at=datetime.utcnow()
+                )
+                db.add(file_record)
+                file_records.append(file_record)
+            
+            await db.commit()
         
         # 创建示例检测任务
         sample_tasks = [
@@ -185,49 +183,40 @@ async def create_sample_data():
             }
         ]
         
-        for task_data in sample_tasks:
-            file_record = task_data.pop("file_record")
-            detection_task = DetectionTask(
-                id=str(uuid.uuid4()),
-                user_id=admin_user.id,
-                file_record_id=file_record.id,
-                **task_data,
-                created_at=datetime.utcnow()
-            )
-            db.add(detection_task)
-        
-        db.commit()
-        
-        logger.info("示例数据创建成功")
-        db.close()
-        return True
+            for task_data in sample_tasks:
+                file_record = task_data.pop("file_record")
+                detection_task = DetectionTask(
+                    id=str(uuid.uuid4()),
+                    user_id=admin_user.id,
+                    file_record_id=file_record.id,
+                    **task_data,
+                    created_at=datetime.utcnow()
+                )
+                db.add(detection_task)
+            
+            await db.commit()
+            
+            logger.info("示例数据创建成功")
+            return True
         
     except SQLAlchemyError as e:
         logger.error(f"创建示例数据失败: {e}")
-        if 'db' in locals():
-            db.rollback()
-            db.close()
         return False
     except Exception as e:
         logger.error(f"创建示例数据时发生未知错误: {e}")
-        if 'db' in locals():
-            db.rollback()
-            db.close()
         return False
 
 
 async def check_database_connection():
     """检查数据库连接"""
     try:
-        db = SessionLocal()
-        
-        # 执行简单查询测试连接
-        result = db.execute(text("SELECT 1"))
-        result.fetchone()
-        
-        logger.info("数据库连接正常")
-        db.close()
-        return True
+        async with AsyncSessionLocal() as db:
+            # 执行简单查询测试连接
+            result = await db.execute(text("SELECT 1"))
+            result.fetchone()
+            
+            logger.info("数据库连接正常")
+            return True
         
     except SQLAlchemyError as e:
         logger.error(f"数据库连接失败: {e}")
@@ -240,18 +229,18 @@ async def check_database_connection():
 async def get_database_info():
     """获取数据库信息"""
     try:
-        db = SessionLocal()
-        
-        # 获取表信息
-        tables_info = {}
-        for model in get_all_models():
-            table_name = model.__tablename__
-            count = db.query(model).count()
-            tables_info[table_name] = count
-        
-        logger.info(f"数据库表信息: {tables_info}")
-        db.close()
-        return tables_info
+        async with AsyncSessionLocal() as db:
+            # 获取表信息
+            tables_info = {}
+            for model in get_all_models():
+                table_name = model.__tablename__
+                count_query = select(func.count()).select_from(model)
+                count_result = await db.execute(count_query)
+                count = count_result.scalar()
+                tables_info[table_name] = count
+            
+            logger.info(f"数据库表信息: {tables_info}")
+            return tables_info
         
     except SQLAlchemyError as e:
         logger.error(f"获取数据库信息失败: {e}")

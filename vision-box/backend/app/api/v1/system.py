@@ -10,8 +10,8 @@ import platform
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, select, func
 from pydantic import BaseModel
 
 from app.core.database import get_db, engine
@@ -137,18 +137,23 @@ def get_application_info() -> Dict[str, Any]:
     }
 
 
-def get_database_info(db: Session) -> Dict[str, Any]:
+async def get_database_info(db: AsyncSession) -> Dict[str, Any]:
     """获取数据库信息"""
     try:
         # 数据库连接测试
-        db.execute(text("SELECT 1"))
+        await db.execute(text("SELECT 1"))
         connection_status = "connected"
         
         # 表统计
         table_stats = {}
-        table_stats["users"] = db.query(User).count()
-        table_stats["detection_tasks"] = db.query(DetectionTask).count()
-        table_stats["file_records"] = db.query(FileRecord).count()
+        users_result = await db.execute(select(func.count()).select_from(User))
+        table_stats["users"] = users_result.scalar()
+        
+        tasks_result = await db.execute(select(func.count()).select_from(DetectionTask))
+        table_stats["detection_tasks"] = tasks_result.scalar()
+        
+        files_result = await db.execute(select(func.count()).select_from(FileRecord))
+        table_stats["file_records"] = files_result.scalar()
         
         # 数据库大小（SQLite）
         db_size = 0
@@ -216,42 +221,59 @@ def check_service_health(service_name: str) -> Dict[str, Any]:
 @router.get("/info", response_model=SystemInfo)
 async def get_system_information(
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取系统信息"""
     return SystemInfo(
         system=get_system_info(),
         hardware=get_hardware_info(),
         application=get_application_info(),
-        database=get_database_info(db)
+        database=await get_database_info(db)
     )
 
 
 @router.get("/stats", response_model=SystemStats)
 async def get_system_statistics(
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取系统统计信息"""
     # 用户统计
-    total_users = db.query(User).count()
-    active_users = db.query(User).filter(User.is_active == True).count()
-    verified_users = db.query(User).filter(User.is_verified == True).count()
+    total_users_result = await db.execute(select(func.count()).select_from(User))
+    total_users = total_users_result.scalar()
+    
+    active_users_result = await db.execute(select(func.count()).select_from(User).where(User.is_active == True))
+    active_users = active_users_result.scalar()
+    
+    verified_users_result = await db.execute(select(func.count()).select_from(User).where(User.is_verified == True))
+    verified_users = verified_users_result.scalar()
     
     # 任务统计
-    total_tasks = db.query(DetectionTask).count()
-    completed_tasks = db.query(DetectionTask).filter(DetectionTask.status == TaskStatus.COMPLETED).count()
-    failed_tasks = db.query(DetectionTask).filter(DetectionTask.status == TaskStatus.FAILED).count()
-    running_tasks = db.query(DetectionTask).filter(DetectionTask.status == TaskStatus.PROCESSING).count()
+    total_tasks_result = await db.execute(select(func.count()).select_from(DetectionTask))
+    total_tasks = total_tasks_result.scalar()
+    
+    completed_tasks_result = await db.execute(select(func.count()).select_from(DetectionTask).where(DetectionTask.status == TaskStatus.COMPLETED))
+    completed_tasks = completed_tasks_result.scalar()
+    
+    failed_tasks_result = await db.execute(select(func.count()).select_from(DetectionTask).where(DetectionTask.status == TaskStatus.FAILED))
+    failed_tasks = failed_tasks_result.scalar()
+    
+    running_tasks_result = await db.execute(select(func.count()).select_from(DetectionTask).where(DetectionTask.status == TaskStatus.PROCESSING))
+    running_tasks = running_tasks_result.scalar()
     
     # 文件统计
-    total_files = db.query(FileRecord).count()
-    total_images = db.query(FileRecord).filter(FileRecord.file_type == "image").count()
-    total_videos = db.query(FileRecord).filter(FileRecord.file_type == "video").count()
+    total_files_result = await db.execute(select(func.count()).select_from(FileRecord))
+    total_files = total_files_result.scalar()
+    
+    total_images_result = await db.execute(select(func.count()).select_from(FileRecord).where(FileRecord.file_type == "image"))
+    total_images = total_images_result.scalar()
+    
+    total_videos_result = await db.execute(select(func.count()).select_from(FileRecord).where(FileRecord.file_type == "video"))
+    total_videos = total_videos_result.scalar()
     
     # 存储统计
-    total_storage_result = db.query(db.func.sum(FileRecord.file_size)).scalar()
-    total_storage_bytes = total_storage_result or 0
+    total_storage_result = await db.execute(select(func.sum(FileRecord.file_size)))
+    total_storage_bytes = total_storage_result.scalar() or 0
     
     # 性能统计
     cpu_usage = psutil.cpu_percent(interval=1)
@@ -388,7 +410,7 @@ async def get_system_logs(
 @router.post("/maintenance/cleanup")
 async def cleanup_system(
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """系统清理"""
     cleanup_results = {
@@ -401,10 +423,12 @@ async def cleanup_system(
     try:
         # 清理过期的失败任务
         expired_date = datetime.utcnow() - timedelta(days=7)
-        expired_tasks = db.query(DetectionTask).filter(
+        expired_tasks_query = select(DetectionTask).where(
             DetectionTask.status == TaskStatus.FAILED,
             DetectionTask.created_at < expired_date
-        ).all()
+        )
+        expired_tasks_result = await db.execute(expired_tasks_query)
+        expired_tasks = expired_tasks_result.scalars().all()
         
         for task in expired_tasks:
             # 删除相关文件
@@ -421,15 +445,15 @@ async def cleanup_system(
                 cleanup_results["deleted_files"] += 1
             
             # 删除任务记录
-            db.delete(task)
+            await db.delete(task)
             cleanup_results["cleaned_tasks"] += 1
         
-        db.commit()
+        await db.commit()
         cleanup_results["freed_space_mb"] = round(cleanup_results["freed_space_mb"], 2)
         
     except Exception as e:
         cleanup_results["errors"].append(str(e))
-        db.rollback()
+        await db.rollback()
     
     return {
         "message": "系统清理完成",
@@ -462,20 +486,24 @@ async def backup_system(
 @router.get("/monitoring/metrics")
 async def get_monitoring_metrics(
     current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取监控指标"""
     # 获取最近24小时的任务统计
     last_24h = datetime.utcnow() - timedelta(hours=24)
     
-    recent_tasks = db.query(DetectionTask).filter(
+    recent_tasks_query = select(func.count()).select_from(DetectionTask).where(
         DetectionTask.created_at >= last_24h
-    ).count()
+    )
+    recent_tasks_result = await db.execute(recent_tasks_query)
+    recent_tasks = recent_tasks_result.scalar()
     
-    recent_completed = db.query(DetectionTask).filter(
+    recent_completed_query = select(func.count()).select_from(DetectionTask).where(
         DetectionTask.created_at >= last_24h,
         DetectionTask.status == TaskStatus.COMPLETED
-    ).count()
+    )
+    recent_completed_result = await db.execute(recent_completed_query)
+    recent_completed = recent_completed_result.scalar()
     
     # 系统资源使用情况
     cpu_usage = psutil.cpu_percent(interval=1)
@@ -483,10 +511,12 @@ async def get_monitoring_metrics(
     disk = psutil.disk_usage('/')
     
     # 计算平均处理时间
-    avg_processing_time = db.query(db.func.avg(DetectionTask.processing_time)).filter(
+    avg_processing_time_query = select(func.avg(DetectionTask.processing_time)).where(
         DetectionTask.status == TaskStatus.COMPLETED,
         DetectionTask.processing_time.isnot(None)
-    ).scalar()
+    )
+    avg_processing_time_result = await db.execute(avg_processing_time_query)
+    avg_processing_time = avg_processing_time_result.scalar()
     
     return {
         "timestamp": datetime.utcnow(),
