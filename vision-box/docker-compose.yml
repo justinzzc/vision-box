@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - vision-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./data/models:/app/models
+    environment:
+      - DATABASE_URL=sqlite:///./data/vision_app.db
+      - UPLOAD_DIR=/app/data/uploads
+      - RESULT_DIR=/app/data/results
+      - MODEL_DIR=/app/models
+    networks:
+      - vision-network
+
+networks:
+  vision-network:
+    driver: bridge
+
+volumes:
+  app-data:

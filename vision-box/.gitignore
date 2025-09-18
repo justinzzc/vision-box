@@ -1,0 +1,83 @@
+# 依赖文件
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 环境变量
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 数据文件
+data/uploads/*
+data/results/*
+!data/uploads/.gitkeep
+!data/results/.gitkeep
+
+# 模型文件
+*.pt
+*.onnx
+*.engine
+*.trt
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.temp
+
+# 构建产物
+frontend/dist/
+backend/dist/
+desktop/dist/
+
+# 测试覆盖率
+coverage/
+.nyc_output/
+.coverage
+htmlcov/
+
+# Docker
+.dockerignore
