@@ -61,6 +61,7 @@ data/results/*
 *.onnx
 *.engine
 *.trt
+vision_app.db
 
 # 临时文件
 tmp/

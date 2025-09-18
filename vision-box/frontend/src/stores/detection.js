@@ -74,9 +74,9 @@ export const useDetectionStore = defineStore('detection', () => {
       
       const response = await apiClient.detect(params)
       
-      if (response.task_id) {
+      if (response.id) {
         currentTask.value = {
-          id: response.task_id,
+          id: response.id,
           status: response.status,
           params,
           createdAt: new Date().toISOString()
@@ -85,7 +85,7 @@ export const useDetectionStore = defineStore('detection', () => {
         message.success('检测任务已启动')
         
         // 开始轮询检测结果
-        pollDetectionResult(response.task_id)
+        pollDetectionResult(response.id)
         
         return response
       } else {
@@ -111,7 +111,7 @@ export const useDetectionStore = defineStore('detection', () => {
         
         if (currentTask.value && currentTask.value.id === taskId) {
           currentTask.value.status = result.status
-          currentTask.value.result = result.result
+          currentTask.value.result = result.result_data
           currentTask.value.annotatedUrl = result.annotated_url
         }
         
@@ -145,7 +145,7 @@ export const useDetectionStore = defineStore('detection', () => {
   const loadHistory = async (params = {}) => {
     try {
       const response = await apiClient.getHistory(params)
-      detectionHistory.value = response.items || []
+      detectionHistory.value = response.tasks || []
       return response
     } catch (error) {
       console.error('加载历史记录错误:', error)

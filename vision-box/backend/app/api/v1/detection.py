@@ -72,6 +72,7 @@ class DetectionResult(BaseModel):
     result_data: Optional[Dict[str, Any]]
     result_summary: Optional[Dict[str, Any]]
     visualization_path: Optional[str]
+    annotated_url: Optional[str]
     output_file_path: Optional[str]
     processing_time: Optional[float]
     error_message: Optional[str]
@@ -156,6 +157,34 @@ def validate_model_for_detection_type(model_name: str, detection_type: Detection
     
     supported_types = AVAILABLE_MODELS[model_name]["supported_types"]
     return detection_type.value in supported_types
+
+
+def convert_local_path_to_url(local_path: str) -> str:
+    """将本地文件路径转换为HTTP可访问的URL"""
+    if not local_path:
+        return None
+    
+    from app.core.config import get_settings
+    settings = get_settings()
+    
+    # 将Windows路径分隔符转换为URL路径分隔符
+    normalized_path = local_path.replace('\\', '/')
+    
+    # 如果路径包含UPLOAD_DIR，提取相对路径
+    upload_dir = settings.UPLOAD_DIR.replace('\\', '/')
+    if upload_dir in normalized_path:
+        relative_path = normalized_path.split(upload_dir)[-1]
+        # 确保路径以/开头
+        if not relative_path.startswith('/'):
+            relative_path = '/' + relative_path
+        return f"/uploads{relative_path}"
+    
+    # 如果路径以data/uploads开头，直接转换
+    if normalized_path.startswith('data/uploads/'):
+        relative_path = normalized_path.replace('data/uploads', '')
+        return f"/uploads{relative_path}"
+    
+    return local_path
 
 
 async def run_detection_task(task_id: str, db: AsyncSession):
@@ -429,6 +458,7 @@ async def get_detection_result(
         result_data=task.get_result_data() if task.result_data else None,
         result_summary=task.get_result_summary() if task.result_summary else None,
         visualization_path=task.visualization_path,
+        annotated_url=convert_local_path_to_url(task.visualization_path),
         output_file_path=task.output_file_path,
         processing_time=task.processing_time,
         error_message=task.error_message

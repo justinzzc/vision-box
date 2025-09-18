@@ -158,13 +158,13 @@
         <template #fileInfo="{ record }">
           <div class="file-info">
             <div class="file-icon">
-              <file-image-outlined v-if="record.file_type === 'image'" />
+              <file-image-outlined v-if="record.file_info?.file_type === 'image'" />
               <video-camera-outlined v-else />
             </div>
             <div class="file-details">
-              <div class="file-name">{{ record.filename }}</div>
+              <div class="file-name">{{ record.file_info?.filename || record.task_name }}</div>
               <div class="file-meta">
-                {{ formatFileSize(record.file_size) }} • {{ record.file_type }}
+                {{ formatFileSize(record.file_info?.file_size || 0) }} • {{ record.file_info?.file_type || 'unknown' }}
               </div>
             </div>
           </div>
@@ -180,13 +180,13 @@
 
         <!-- 检测结果 -->
         <template #result="{ record }">
-          <div v-if="record.status === 'completed' && record.result">
+          <div v-if="record.status === 'completed' && record.result_summary">
             <div class="result-summary">
               <span class="detection-count">
-                {{ record.result.detections?.length || 0 }} 个对象
+                {{ record.result_summary.total_detections || 0 }} 个对象
               </span>
               <span class="confidence-avg">
-                平均置信度: {{ getAverageConfidence(record.result.detections) }}%
+                平均置信度: {{ (record.result_summary.average_confidence * 100).toFixed(1) || 0 }}%
               </span>
             </div>
           </div>
@@ -307,8 +307,8 @@ const columns = [
   },
   {
     title: '置信度',
-    dataIndex: 'confidence',
-    key: 'confidence',
+    dataIndex: 'confidence_threshold',
+    key: 'confidence_threshold',
     width: 100,
     customRender: ({ text }) => (text * 100).toFixed(0) + '%'
   },
@@ -359,7 +359,8 @@ const filteredHistory = computed(() => {
   // 搜索过滤
   if (searchKeyword.value) {
     history = history.filter(item => 
-      item.filename?.toLowerCase().includes(searchKeyword.value.toLowerCase())
+      item.task_name?.toLowerCase().includes(searchKeyword.value.toLowerCase()) ||
+      item.file_info?.filename?.toLowerCase().includes(searchKeyword.value.toLowerCase())
     )
   }
   
@@ -370,7 +371,7 @@ const filteredHistory = computed(() => {
   
   // 文件类型过滤
   if (filterFileType.value) {
-    history = history.filter(item => item.file_type === filterFileType.value)
+    history = history.filter(item => item.file_info?.file_type === filterFileType.value)
   }
   
   // 日期范围过滤
@@ -470,10 +471,10 @@ const redetect = (record) => {
   router.push({
     path: '/detect',
     query: {
-      file_id: record.file_id,
+      file_id: record.file_record_id,
       model_name: record.model_name,
-      confidence: record.confidence,
-      classes: JSON.stringify(record.classes)
+      confidence: record.confidence_threshold,
+      classes: JSON.stringify(record.classes || [])
     }
   })
 }
