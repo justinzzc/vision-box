@@ -1,6 +1,10 @@
 import axios from 'axios'
 import { message } from 'ant-design-vue'
 
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
@@ -54,6 +58,10 @@ api.interceptors.response.use(
           break
         case 401:
           errorMessage = '未授权访问'
+          // 清除token并跳转到登录页
+          localStorage.removeItem('token')
+          localStorage.removeItem('user')
+          router.push('/login')
           break
         case 403:
           errorMessage = '禁止访问'

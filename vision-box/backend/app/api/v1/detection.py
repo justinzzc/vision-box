@@ -76,6 +76,9 @@ class DetectionResult(BaseModel):
     output_file_path: Optional[str]
     processing_time: Optional[float]
     error_message: Optional[str]
+    # 文件信息
+    file_info: Optional[Dict[str, Any]]
+    original_url: Optional[str]
 
 
 class TaskListResponse(BaseModel):
@@ -450,6 +453,20 @@ async def get_detection_result(
             detail="任务不存在"
         )
     
+    # 获取文件信息
+    file_result = await db.execute(select(FileRecord).where(FileRecord.id == task.file_record_id))
+    file_record = file_result.scalar_one_or_none()
+    
+    # 构建文件信息和原始文件URL
+    file_info = file_record.to_dict() if file_record else None
+    original_url = None
+    if file_record:
+        # 生成原始文件的访问URL
+        if file_record.is_public == "true":
+            original_url = f"/uploads/{file_record.stored_filename}"
+        else:
+            original_url = f"/uploads/{file_record.stored_filename}"
+    
     return DetectionResult(
         task_id=task.id,
         status=task.status.value,
@@ -461,7 +478,9 @@ async def get_detection_result(
         annotated_url=convert_local_path_to_url(task.visualization_path),
         output_file_path=task.output_file_path,
         processing_time=task.processing_time,
-        error_message=task.error_message
+        error_message=task.error_message,
+        file_info=file_info,
+        original_url=original_url
     )
 
 

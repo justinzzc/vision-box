@@ -76,7 +76,7 @@
             <!-- 媒体展示区域 -->
             <div class="media-container">
               <!-- 图片展示 -->
-              <div v-if="taskData.file_type === 'image'" class="image-container">
+              <div v-if="taskData.file_info?.file_type === 'image'" class="image-container">
                 <img 
                   :src="activeMediaTab === 'original' ? taskData.original_url : taskData.annotated_url"
                   :alt="activeMediaTab === 'original' ? '原始图片' : '标注结果'"
@@ -104,7 +104,7 @@
               </div>
               
               <!-- 视频展示 -->
-              <div v-else-if="taskData.file_type === 'video'" class="video-container">
+              <div v-else-if="taskData.file_info?.file_type === 'video'" class="video-container">
                 <video 
                   :src="activeMediaTab === 'original' ? taskData.original_url : taskData.annotated_url"
                   controls
@@ -125,15 +125,15 @@
           <a-card title="基本信息" class="info-card">
             <a-descriptions :column="1" size="small">
               <a-descriptions-item label="文件名">
-                {{ taskData.filename }}
+                {{ taskData.file_info?.filename || '未知' }}
               </a-descriptions-item>
               <a-descriptions-item label="文件类型">
-                <a-tag :color="taskData.file_type === 'image' ? 'blue' : 'green'">
-                  {{ taskData.file_type === 'image' ? '图片' : '视频' }}
+                <a-tag :color="taskData.file_info?.file_type === 'image' ? 'blue' : 'green'">
+                  {{ taskData.file_info?.file_type === 'image' ? '图片' : '视频' }}
                 </a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="文件大小">
-                {{ formatFileSize(taskData.file_size) }}
+                {{ formatFileSize(taskData.file_info?.file_size || 0) }}
               </a-descriptions-item>
               <a-descriptions-item label="检测模型">
                 {{ getModelLabel(taskData.model_name) }}
@@ -156,7 +156,7 @@
           </a-card>
           
           <!-- 检测统计 -->
-          <a-card title="检测统计" class="stats-card" v-if="taskData.result">
+          <a-card title="检测统计" class="stats-card" v-if="taskData.result_data">
             <a-row :gutter="[16, 16]">
               <a-col :span="12">
                 <a-statistic 
@@ -196,7 +196,7 @@
           </a-card>
           
           <!-- 类别分布 -->
-          <a-card title="类别分布" class="distribution-card" v-if="taskData.result">
+          <a-card title="类别分布" class="distribution-card" v-if="taskData.result_data">
             <div class="class-distribution">
               <div 
                 v-for="(count, className) in getClassDistribution()" 
@@ -219,7 +219,7 @@
       </a-row>
       
       <!-- 详细检测结果 -->
-      <a-card title="详细检测结果" class="details-card" v-if="taskData.result">
+      <a-card title="详细检测结果" class="details-card" v-if="taskData.result_data">
         <div class="table-actions">
           <a-space>
             <a-input
@@ -285,7 +285,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDetectionStore } from '@/stores/detection'
-import { formatFileSize } from '@/utils/api'
+import { formatFileSize, apiClient } from '@/utils/api'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
@@ -354,9 +354,9 @@ const tablePagination = {
 
 // 计算属性
 const filteredDetections = computed(() => {
-  if (!taskData.value?.result?.detections) return []
+  if (!taskData.value?.result_data?.detections) return []
   
-  let detections = taskData.value.result.detections.map((detection, index) => ({
+  let detections = taskData.value.result_data.detections.map((detection, index) => ({
     ...detection,
     index
   }))
@@ -389,17 +389,18 @@ const loadTaskData = async () => {
     loading.value = true
     error.value = ''
     
-    // 先从store中查找
-    let task = detectionStore.getTaskById(taskId)
-    
-    if (!task) {
-      // 如果store中没有，则从API获取
-      const result = await detectionStore.apiClient.getResult(taskId)
-      task = result
-    }
+    // 强制从API获取最新数据
+    console.log('从API获取任务数据，taskId:', taskId)
+    const result = await apiClient.getResult(taskId)
+    console.log('API返回的完整数据:', result)
+    console.log('original_url字段:', result.original_url)
+    console.log('annotated_url字段:', result.annotated_url)
+    console.log('file_info字段:', result.file_info)
+    const task = result
     
     if (task) {
       taskData.value = task
+      console.log('设置taskData后的值:', taskData.value)
     } else {
       error.value = '未找到指定的检测任务'
     }
@@ -451,34 +452,34 @@ const getStatusText = (status) => {
 }
 
 const getDetectionCount = () => {
-  return taskData.value?.result?.detections?.length || 0
+  return taskData.value?.result_data?.detections?.length || 0
 }
 
 const getUniqueClasses = () => {
-  if (!taskData.value?.result?.detections) return []
-  const classes = taskData.value.result.detections.map(d => d.class_name)
+  if (!taskData.value?.result_data?.detections) return []
+  const classes = taskData.value.result_data.detections.map(d => d.class_name)
   return [...new Set(classes)]
 }
 
 const getAverageConfidence = () => {
-  if (!taskData.value?.result?.detections) return 0
-  const detections = taskData.value.result.detections
+  if (!taskData.value?.result_data?.detections) return 0
+  const detections = taskData.value.result_data.detections
   const sum = detections.reduce((acc, d) => acc + d.confidence, 0)
   return (sum / detections.length) * 100
 }
 
 const getMaxConfidence = () => {
-  if (!taskData.value?.result?.detections) return 0
-  const detections = taskData.value.result.detections
+  if (!taskData.value?.result_data?.detections) return 0
+  const detections = taskData.value.result_data.detections
   const max = Math.max(...detections.map(d => d.confidence))
   return max * 100
 }
 
 const getClassDistribution = () => {
-  if (!taskData.value?.result?.detections) return {}
+  if (!taskData.value?.result_data?.detections) return {}
   
   const distribution = {}
-  taskData.value.result.detections.forEach(detection => {
+  taskData.value.result_data.detections.forEach(detection => {
     const className = detection.class_name
     distribution[className] = (distribution[className] || 0) + 1
   })
