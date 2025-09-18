@@ -84,4 +84,3 @@ htmlcov/
 
 # Docker
 .dockerignore
-.trae/
