@@ -74,9 +74,12 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { UserOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 // 菜单路由
 const menuRoutes = [
@@ -115,6 +118,19 @@ const currentPageTitle = computed(() => {
 // 方法
 const getIcon = (iconName) => {
   return iconMap[iconName] || '📄'
+}
+
+const isActive = (path) => {
+  return route.path === path
+}
+
+const goToSettings = () => {
+  router.push('/settings')
+}
+
+const handleLogout = async () => {
+  await authStore.logout()
+  router.push('/login')
 }
 
 const refreshPage = () => {

@@ -22,7 +22,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoading.value = true
     try {
       const response = await apiClient.login(credentials)
-      const { access_token, user: userData } = response
+      const { access_token, user_info: userData } = response
       
       // 保存token和用户信息
       token.value = access_token
@@ -120,7 +120,7 @@ export const useAuthStore = defineStore('auth', () => {
     const savedToken = localStorage.getItem('token')
     const savedUser = localStorage.getItem('user')
     
-    if (savedToken && savedUser) {
+    if (savedToken && savedUser && savedUser !== 'undefined' && savedUser !== 'null') {
       try {
         token.value = savedToken
         user.value = JSON.parse(savedUser)
@@ -129,7 +129,15 @@ export const useAuthStore = defineStore('auth', () => {
         // 清除损坏的数据
         localStorage.removeItem('token')
         localStorage.removeItem('user')
+        token.value = null
+        user.value = null
       }
+    } else {
+      // 清除无效数据
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      token.value = null
+      user.value = null
     }
   }
 

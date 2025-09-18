@@ -11,7 +11,7 @@ from .v1 import api_router as v1_router
 api_router = APIRouter()
 
 # 包含v1版本的API
-api_router.include_router(v1_router, prefix="/v1")
+api_router.include_router(v1_router)
 
 # API版本信息
 API_VERSION = "1.0.0"

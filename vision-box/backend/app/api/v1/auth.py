@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_db
@@ -85,7 +86,7 @@ class ApiKeyResponse(BaseModel):
 
 
 # 依赖函数
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     """获取当前用户"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -101,7 +102,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     except Exception:
         raise credentials_exception
     
-    user = db.query(User).filter(User.id == user_id).first()
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
     
@@ -136,10 +138,11 @@ async def get_current_admin_user(current_user: User = Depends(get_current_user))
 
 # API端点
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """用户注册"""
     # 检查用户名是否已存在
-    existing_user = db.query(User).filter(User.username == user_data.username).first()
+    result = await db.execute(select(User).where(User.username == user_data.username))
+    existing_user = result.scalar_one_or_none()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -147,7 +150,8 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         )
     
     # 检查邮箱是否已存在
-    existing_email = db.query(User).filter(User.email == user_data.email).first()
+    result = await db.execute(select(User).where(User.email == user_data.email))
+    existing_email = result.scalar_one_or_none()
     if existing_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -169,17 +173,57 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     )
     
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    await db.commit()
+    await db.refresh(new_user)
     
     return UserResponse(**new_user.to_dict())
 
 
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """用户登录"""
+async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
+    """用户登录（JSON格式）"""
     # 查找用户
-    user = db.query(User).filter(User.username == form_data.username).first()
+    result = await db.execute(select(User).where(User.username == login_data.username))
+    user = result.scalar_one_or_none()
+    
+    if not user or not verify_password(login_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户账户已被禁用"
+        )
+    
+    # 更新最后登录时间
+    user.update_last_login()
+    await db.commit()
+    
+    # 创建访问令牌
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        subject=user.id,
+        expires_delta=access_token_expires
+    )
+    
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user_info=user.to_dict()
+    )
+
+
+@router.post("/login-form", response_model=Token)
+async def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    """用户登录（表单格式，OAuth2兼容）"""
+    # 查找用户
+    result = await db.execute(select(User).where(User.username == form_data.username))
+    user = result.scalar_one_or_none()
     
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
@@ -196,12 +240,12 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     
     # 更新最后登录时间
     user.update_last_login()
-    db.commit()
+    await db.commit()
     
     # 创建访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.id, "username": user.username},
+        subject=user.id,
         expires_delta=access_token_expires
     )
     
@@ -224,7 +268,7 @@ async def update_current_user(
     full_name: Optional[str] = Form(None),
     bio: Optional[str] = Form(None),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """更新当前用户信息"""
     if full_name is not None:
@@ -233,8 +277,8 @@ async def update_current_user(
         current_user.bio = bio
     
     current_user.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(current_user)
+    await db.commit()
+    await db.refresh(current_user)
     
     return UserResponse(**current_user.to_dict())
 
@@ -243,7 +287,7 @@ async def update_current_user(
 async def change_password(
     password_data: PasswordChange,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """修改密码"""
     # 验证旧密码
@@ -256,7 +300,7 @@ async def change_password(
     # 更新密码
     current_user.password_hash = get_password_hash(password_data.new_password)
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return {"message": "密码修改成功"}
 
@@ -264,7 +308,7 @@ async def change_password(
 @router.post("/generate-api-key", response_model=ApiKeyResponse)
 async def generate_user_api_key(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """生成API密钥"""
     api_key = generate_api_key()
@@ -272,7 +316,7 @@ async def generate_user_api_key(
     
     current_user.api_key_hash = api_key_hash
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return ApiKeyResponse(
         api_key=api_key,
@@ -284,12 +328,12 @@ async def generate_user_api_key(
 @router.delete("/revoke-api-key")
 async def revoke_api_key(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """撤销API密钥"""
     current_user.api_key_hash = None
     current_user.updated_at = datetime.utcnow()
-    db.commit()
+    await db.commit()
     
     return {"message": "API密钥已撤销"}
 
@@ -324,13 +368,13 @@ async def verify_user_token(token: str = Depends(oauth2_scheme)):
 @router.post("/refresh-token", response_model=Token)
 async def refresh_token(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """刷新令牌"""
     # 创建新的访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": current_user.id, "username": current_user.username},
+        subject=current_user.id,
         expires_delta=access_token_expires
     )
     
