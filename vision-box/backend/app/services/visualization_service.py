@@ -201,9 +201,29 @@ class VisualizationService:
                 filename = Path(video_path).stem + "_detected.mp4"
                 output_path = str(self.visualization_dir / filename)
             
-            # 创建视频写入器
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            # 创建视频写入器 - 使用H264编码器提高浏览器兼容性
+            try:
+                # 首选H264编码器
+                fourcc = cv2.VideoWriter_fourcc(*'H264')
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                
+                # 检查写入器是否成功创建
+                if not out.isOpened():
+                    logger.warning("H264编码器创建失败，尝试使用avc1编码器")
+                    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                    
+                    if not out.isOpened():
+                        logger.warning("avc1编码器创建失败，使用mp4v编码器")
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                        
+                        if not out.isOpened():
+                            raise Exception("无法创建视频写入器，所有编码器都失败")
+                            
+            except Exception as e:
+                logger.error(f"创建视频写入器失败: {str(e)}")
+                raise Exception(f"创建视频写入器失败: {str(e)}")
             
             # 创建检测结果索引
             detection_index = {}
@@ -261,12 +281,57 @@ class VisualizationService:
             cap.release()
             out.release()
             
+            # 验证生成的视频文件
+            if not self._validate_video_file(output_path):
+                logger.error(f"生成的视频文件验证失败: {output_path}")
+                raise Exception("生成的视频文件损坏或格式不正确")
+            
             logger.info(f"视频可视化结果保存至: {output_path}")
             return output_path
             
         except Exception as e:
             logger.error(f"视频可视化失败: {str(e)}")
             raise Exception(f"视频可视化失败: {str(e)}")
+    
+    def _validate_video_file(self, video_path: str) -> bool:
+        """验证视频文件是否完整且可播放"""
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(video_path):
+                logger.error(f"视频文件不存在: {video_path}")
+                return False
+            
+            # 检查文件大小
+            file_size = os.path.getsize(video_path)
+            if file_size == 0:
+                logger.error(f"视频文件为空: {video_path}")
+                return False
+            
+            # 尝试打开视频文件
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                logger.error(f"无法打开视频文件: {video_path}")
+                return False
+            
+            # 检查视频属性
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            cap.release()
+            
+            # 验证基本属性
+            if frame_count <= 0 or fps <= 0 or width <= 0 or height <= 0:
+                logger.error(f"视频文件属性异常: frames={frame_count}, fps={fps}, size={width}x{height}")
+                return False
+            
+            logger.info(f"视频文件验证成功: {video_path} (frames={frame_count}, fps={fps}, size={width}x{height}, size={file_size} bytes)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"视频文件验证失败: {video_path}, 错误: {str(e)}")
+            return False
     
     def create_detection_summary_image(
         self,

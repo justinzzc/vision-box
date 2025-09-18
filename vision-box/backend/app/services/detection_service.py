@@ -365,9 +365,34 @@ class DetectionService:
                         ]
                     }
                 ],
+                "detections": [
+                    {
+                        "id": 0,
+                        "frame_id": 0,
+                        "timestamp": 0.0,
+                        "class_id": 0,
+                        "class_name": "person",
+                        "confidence": 0.85,
+                        "bbox": [100, 100, 200, 300],
+                        "area": 20000,
+                        "center": [150, 200]
+                    },
+                    {
+                        "id": 1,
+                        "frame_id": 1,
+                        "timestamp": 0.04,
+                        "class_id": 2,
+                        "class_name": "car",
+                        "confidence": 0.92,
+                        "bbox": [300, 150, 500, 350],
+                        "area": 40000,
+                        "center": [400, 250]
+                    }
+                ],
                 "total_frames_processed": 2,
                 "total_detections": 2,
                 "unique_classes": ["person", "car"],
+                "class_counts": {"person": 1, "car": 1},
                 "video_info": {
                     "total_frames": 100,
                     "fps": 25.0,
@@ -435,6 +460,51 @@ class DetectionService:
                     progress_callback=video_progress
                 )
                 
+                # 为视频检测结果添加统一的detections字段
+                if "frame_detections" in result_data:
+                    all_detections = []
+                    detection_id = 0
+                    
+                    for frame_data in result_data["frame_detections"]:
+                        frame_id = frame_data.get("frame_id", 0)
+                        timestamp = frame_data.get("timestamp", 0)
+                        
+                        for detection in frame_data.get("detections", []):
+                            # 为每个检测添加统一的字段格式
+                            unified_detection = {
+                                "id": detection_id,
+                                "frame_id": frame_id,
+                                "timestamp": timestamp,
+                                "class_id": detection.get("class_id", 0),
+                                "class_name": detection.get("class_name", "unknown"),
+                                "confidence": detection.get("confidence", 0.0),
+                                "bbox": detection.get("bbox", [0, 0, 0, 0])
+                            }
+                            
+                            # 计算面积和中心点
+                            bbox = unified_detection["bbox"]
+                            if len(bbox) >= 4:
+                                width = bbox[2] - bbox[0]
+                                height = bbox[3] - bbox[1]
+                                unified_detection["area"] = width * height
+                                unified_detection["center"] = [
+                                    bbox[0] + width / 2,
+                                    bbox[1] + height / 2
+                                ]
+                            
+                            all_detections.append(unified_detection)
+                            detection_id += 1
+                    
+                    # 添加统一的detections字段
+                    result_data["detections"] = all_detections
+                    
+                    # 计算类别统计
+                    class_counts = {}
+                    for detection in all_detections:
+                        class_name = detection["class_name"]
+                        class_counts[class_name] = class_counts.get(class_name, 0) + 1
+                    result_data["class_counts"] = class_counts
+                
                 if progress_callback:
                     await progress_callback(80, "视频检测完成")
             
@@ -459,6 +529,8 @@ class DetectionService:
                     "total_detections": result_data.get("total_detections", 0),
                     "unique_classes": result_data.get("unique_classes", []),
                     "video_duration": result_data.get("video_info", {}).get("duration", 0),
+                    "average_confidence": self._calculate_average_confidence(result_data.get("detections", [])),
+                    "classes_detected": list(result_data.get("class_counts", {}).keys()),
                     "file_info": {
                         "filename": file_record.filename,
                         "file_size": file_record.file_size,
