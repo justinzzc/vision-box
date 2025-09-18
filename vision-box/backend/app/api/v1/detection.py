@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Form
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
@@ -308,37 +309,45 @@ async def list_detection_tasks(
     detection_type_filter: Optional[DetectionType] = Query(None, description="检测类型过滤"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取检测任务列表"""
-    query = db.query(DetectionTask).filter(DetectionTask.user_id == current_user.id)
+    from sqlalchemy import select, func
+    
+    # 构建基础查询
+    query = select(DetectionTask).where(DetectionTask.user_id == current_user.id)
     
     # 状态过滤
     if status_filter:
-        query = query.filter(DetectionTask.status == status_filter)
+        query = query.where(DetectionTask.status == status_filter)
     
     # 检测类型过滤
     if detection_type_filter:
-        query = query.filter(DetectionTask.detection_type == detection_type_filter)
+        query = query.where(DetectionTask.detection_type == detection_type_filter)
     
     # 搜索过滤
     if search:
-        query = query.filter(DetectionTask.task_name.contains(search))
+        query = query.where(DetectionTask.task_name.contains(search))
     
     # 按创建时间倒序
     query = query.order_by(DetectionTask.created_at.desc())
     
     # 计算总数
-    total = query.count()
+    count_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
     
     # 分页
     offset = (page - 1) * page_size
-    tasks = query.offset(offset).limit(page_size).all()
+    paginated_query = query.offset(offset).limit(page_size)
+    result = await db.execute(paginated_query)
+    tasks = result.scalars().all()
     
     # 转换为响应格式
     task_list = []
     for task in tasks:
-        file_record = db.query(FileRecord).filter(FileRecord.id == task.file_record_id).first()
+        file_result = await db.execute(select(FileRecord).where(FileRecord.id == task.file_record_id))
+        file_record = file_result.scalar_one_or_none()
         
         task_response = DetectionTaskResponse(
             id=task.id,
