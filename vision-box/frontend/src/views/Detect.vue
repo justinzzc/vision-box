@@ -320,29 +320,48 @@ const progressStatus = computed(() => {
 
 // 方法
 const beforeUpload = (file) => {
+  console.log('beforeUpload 函数被调用:', file)
+  console.log('文件信息:', {
+    name: file.name,
+    type: file.type,
+    size: file.size
+  })
+  
   // 检查文件类型
   const isValidType = checkFileType(file, ['image', 'video'])
+  console.log('文件类型检查结果:', isValidType)
+  
   if (!isValidType) {
+    console.log('文件类型不支持')
     message.error('不支持的文件格式')
     return false
   }
   
   // 检查文件大小 (100MB)
   const isValidSize = file.size / 1024 / 1024 < 100
+  console.log('文件大小检查结果:', isValidSize, '文件大小(MB):', file.size / 1024 / 1024)
+  
   if (!isValidSize) {
+    console.log('文件大小超限')
     message.error('文件大小不能超过100MB')
     return false
   }
   
-  return false // 阻止自动上传
+  console.log('beforeUpload 验证通过，允许上传')
+  return true // 允许上传，触发 custom-request
 }
 
 const handleUpload = async ({ file }) => {
+  console.log('handleUpload 函数被调用:', file)
+  
   try {
     uploading.value = true
     
     const fileType = file.type.startsWith('image/') ? 'image' : 'video'
+    console.log('开始上传文件，类型:', fileType)
+    
     const response = await detectionStore.uploadFile(file, fileType)
+    console.log('文件上传成功:', response)
     
     uploadedFile.value = {
       id: response.file_id,
@@ -352,8 +371,11 @@ const handleUpload = async ({ file }) => {
       url: response.file_url
     }
     
+    message.success('文件上传成功')
+    
   } catch (error) {
     console.error('上传失败:', error)
+    message.error('文件上传失败: ' + error.message)
   } finally {
     uploading.value = false
   }

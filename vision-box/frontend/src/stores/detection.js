@@ -51,7 +51,8 @@ export const useDetectionStore = defineStore('detection', () => {
       
       const response = await apiClient.uploadFile(file, fileType)
       
-      if (response.success) {
+      // 检查响应是否包含file_id，表示上传成功
+      if (response.file_id) {
         message.success('文件上传成功')
         return response
       } else {

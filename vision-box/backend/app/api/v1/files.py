@@ -8,6 +8,7 @@ import os
 import uuid
 import hashlib
 import mimetypes
+import json
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Form
