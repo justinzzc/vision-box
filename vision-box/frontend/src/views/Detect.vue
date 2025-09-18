@@ -5,14 +5,8 @@
       <a-col :xs="24" :lg="12">
         <!-- 文件上传区域 -->
         <a-card title="文件上传" class="upload-card">
-          <a-upload-dragger
-            v-model:file-list="fileList"
-            :before-upload="beforeUpload"
-            :custom-request="handleUpload"
-            :show-upload-list="false"
-            accept="image/*,video/*"
-            class="upload-dragger"
-          >
+          <a-upload-dragger v-model:file-list="fileList" :before-upload="beforeUpload" :custom-request="handleUpload"
+            :show-upload-list="false" accept="image/*,video/*" class="upload-dragger">
             <div class="upload-content">
               <p class="ant-upload-drag-icon">
                 <inbox-outlined v-if="!uploadedFile" />
@@ -29,7 +23,7 @@
               </p>
             </div>
           </a-upload-dragger>
-          
+
           <!-- 文件预览 -->
           <div v-if="uploadedFile" class="file-preview">
             <a-card size="small">
@@ -44,51 +38,34 @@
                     {{ formatFileSize(uploadedFile.size) }} • {{ uploadedFile.type }}
                   </div>
                 </div>
-                <a-button 
-                  type="text" 
-                  danger 
-                  @click="removeFile"
-                  :icon="h(DeleteOutlined)"
-                />
+                <a-button type="text" danger @click="removeFile" :icon="h(DeleteOutlined)" />
               </div>
             </a-card>
           </div>
         </a-card>
-        
+
         <!-- 检测参数配置 -->
         <a-card title="检测参数" class="params-card">
           <a-form :model="detectionParams" layout="vertical">
             <!-- 模型选择 -->
             <a-form-item label="检测模型">
-              <a-select 
-                v-model:value="detectionParams.model_name" 
-                placeholder="选择检测模型"
-              >
-                <a-select-option 
-                  v-for="model in availableModels" 
-                  :key="model.name" 
-                  :value="model.name"
-                >
+              <a-select v-model:value="detectionParams.model_name" placeholder="选择检测模型">
+                <a-select-option v-for="model in availableModels" :key="model.name" :value="model.name">
                   {{ model.label }}
                   <span class="model-size">({{ model.size }})</span>
                 </a-select-option>
               </a-select>
             </a-form-item>
-            
+
             <!-- 置信度阈值 -->
             <a-form-item label="置信度阈值">
-              <a-slider 
-                v-model:value="detectionParams.confidence" 
-                :min="0.1" 
-                :max="1" 
-                :step="0.05"
-                :marks="confidenceMarks"
-              />
+              <a-slider v-model:value="detectionParams.confidence" :min="0.1" :max="1" :step="0.05"
+                :marks="confidenceMarks" />
               <div class="param-value">
                 当前值: {{ detectionParams.confidence }}
               </div>
             </a-form-item>
-            
+
             <!-- 检测类别 -->
             <a-form-item label="检测类别">
               <a-checkbox-group v-model:value="detectionParams.classes" class="class-group">
@@ -105,105 +82,66 @@
               </div>
             </a-form-item>
           </a-form>
-          
+
           <!-- 开始检测按钮 -->
           <div class="detect-actions">
-            <a-button 
-              type="primary" 
-              size="large" 
-              :loading="detecting" 
-              :disabled="!uploadedFile"
-              @click="startDetection"
-              block
-            >
+            <a-button type="primary" size="large" :loading="detecting" :disabled="!uploadedFile" @click="startDetection"
+              block>
               <play-circle-outlined v-if="!detecting" />
               开始检测
             </a-button>
           </div>
         </a-card>
       </a-col>
-      
+
       <!-- 右侧：检测结果展示 -->
       <a-col :xs="24" :lg="12">
         <a-card title="检测结果" class="result-card">
           <!-- 检测状态 -->
           <div v-if="currentTask" class="detection-status">
-            <a-alert
-              :type="getStatusType(currentTask.status)"
-              :message="getStatusMessage(currentTask.status)"
-              :description="getStatusDescription(currentTask.status)"
-              show-icon
-              class="status-alert"
-            />
-            
+            <a-alert :type="getStatusType(currentTask.status)" :message="getStatusMessage(currentTask.status)"
+              :description="getStatusDescription(currentTask.status)" show-icon class="status-alert" />
+
             <!-- 进度条 -->
-            <a-progress 
-              v-if="currentTask.status === 'processing'"
-              :percent="progressPercent"
-              :status="progressStatus"
-              class="progress-bar"
-            />
+            <a-progress v-if="currentTask.status === 'processing'" :percent="progressPercent" :status="progressStatus"
+              class="progress-bar" />
           </div>
-          
+
           <!-- 结果展示 -->
           <div v-if="currentTask && currentTask.status === 'completed'" class="result-display">
             <!-- 标注图片/视频 -->
             <div class="annotated-media">
-              <img 
-                v-if="uploadedFile && uploadedFile.type === 'image'"
-                :src="currentTask.annotatedUrl"
-                alt="检测结果"
-                class="result-image"
-              />
-              <video 
-                v-else-if="uploadedFile && uploadedFile.type === 'video'"
-                :src="currentTask.annotatedUrl"
-                controls
-                class="result-video"
-              />
+              <img v-if="uploadedFile && uploadedFile.type === 'image'" :src="currentTask.annotatedUrl" alt="检测结果"
+                class="result-image" />
+              <video v-else-if="uploadedFile && uploadedFile.type === 'video'" :src="currentTask.annotatedUrl" controls
+                class="result-video" />
             </div>
-            
+
             <!-- 检测统计 -->
             <div class="detection-stats">
               <a-row :gutter="16">
                 <a-col :span="8">
-                  <a-statistic 
-                    title="检测对象" 
-                    :value="getDetectionCount()" 
-                    suffix="个"
-                  />
+                  <a-statistic title="检测对象" :value="getDetectionCount()" suffix="个" />
                 </a-col>
                 <a-col :span="8">
-                  <a-statistic 
-                    title="检测类别" 
-                    :value="getUniqueClasses().length" 
-                    suffix="种"
-                  />
+                  <a-statistic title="检测类别" :value="getUniqueClasses().length" suffix="种" />
                 </a-col>
                 <a-col :span="8">
-                  <a-statistic 
-                    title="平均置信度" 
-                    :value="getAverageConfidence()" 
-                    :precision="2"
-                  />
+                  <a-statistic title="平均置信度" :value="getAverageConfidence()" :precision="2" />
                 </a-col>
               </a-row>
             </div>
-            
+
             <!-- 检测详情 -->
             <div class="detection-details">
               <a-collapse>
                 <a-collapse-panel key="details" header="检测详情">
-                  <a-table 
-                    :columns="detectionColumns"
-                    :data-source="getDetectionList()"
-                    :pagination="false"
-                    size="small"
-                  />
+                  <a-table :columns="detectionColumns" :data-source="getDetectionList()" :pagination="false"
+                    size="small" />
                 </a-collapse-panel>
               </a-collapse>
             </div>
-            
+
             <!-- 操作按钮 -->
             <div class="result-actions">
               <a-space>
@@ -222,13 +160,9 @@
               </a-space>
             </div>
           </div>
-          
+
           <!-- 空状态 -->
-          <a-empty 
-            v-else-if="!currentTask"
-            description="请上传文件并开始检测"
-            class="empty-result"
-          />
+          <a-empty v-else-if="!currentTask" description="请上传文件并开始检测" class="empty-result" />
         </a-card>
       </a-col>
     </a-row>
@@ -291,13 +225,11 @@ const detectionColumns = [
     title: '置信度',
     dataIndex: 'confidence',
     key: 'confidence',
-    render: (value) => (value * 100).toFixed(1) + '%'
   },
   {
     title: '位置',
     dataIndex: 'bbox',
     key: 'bbox',
-    render: (bbox) => `(${bbox[0]}, ${bbox[1]}, ${bbox[2]}, ${bbox[3]})`
   }
 ]
 
@@ -326,43 +258,43 @@ const beforeUpload = (file) => {
     type: file.type,
     size: file.size
   })
-  
+
   // 检查文件类型
   const isValidType = checkFileType(file, ['image', 'video'])
   console.log('文件类型检查结果:', isValidType)
-  
+
   if (!isValidType) {
     console.log('文件类型不支持')
     message.error('不支持的文件格式')
     return false
   }
-  
+
   // 检查文件大小 (100MB)
   const isValidSize = file.size / 1024 / 1024 < 100
   console.log('文件大小检查结果:', isValidSize, '文件大小(MB):', file.size / 1024 / 1024)
-  
+
   if (!isValidSize) {
     console.log('文件大小超限')
     message.error('文件大小不能超过100MB')
     return false
   }
-  
+
   console.log('beforeUpload 验证通过，允许上传')
   return true // 允许上传，触发 custom-request
 }
 
 const handleUpload = async ({ file }) => {
   console.log('handleUpload 函数被调用:', file)
-  
+
   try {
     uploading.value = true
-    
+
     const fileType = file.type.startsWith('image/') ? 'image' : 'video'
     console.log('开始上传文件，类型:', fileType)
-    
+
     const response = await detectionStore.uploadFile(file, fileType)
     console.log('文件上传成功:', response)
-    
+
     uploadedFile.value = {
       id: response.file_id,
       name: file.name,
@@ -370,9 +302,9 @@ const handleUpload = async ({ file }) => {
       type: fileType,
       url: response.file_url
     }
-    
+
     message.success('文件上传成功')
-    
+
   } catch (error) {
     console.error('上传失败:', error)
     message.error('文件上传失败: ' + error.message)
@@ -404,11 +336,11 @@ const startDetection = async () => {
     message.error('请先上传文件')
     return
   }
-  
+
   try {
     detecting.value = true
     progressPercent.value = 0
-    
+
     const params = {
       file_record_id: uploadedFile.value.id,
       task_name: `检测任务_${new Date().toLocaleString()}`,
@@ -417,22 +349,22 @@ const startDetection = async () => {
       model_name: detectionParams.value.model_name,
       classes: detectionParams.value.classes
     }
-    
+
     await detectionStore.startDetection(params)
-    
+
     // 模拟进度更新
     const progressInterval = setInterval(() => {
       if (progressPercent.value < 90) {
-        progressPercent.value += Math.random() * 10
+        progressPercent.value += Math.floor(Math.random() * 10)
       }
-      
+
       if (currentTask.value?.status === 'completed' || currentTask.value?.status === 'failed') {
         progressPercent.value = 100
         clearInterval(progressInterval)
         detecting.value = false
       }
     }, 1000)
-    
+
   } catch (error) {
     console.error('检测失败:', error)
     detecting.value = false
@@ -490,13 +422,15 @@ const getDetectionList = () => {
   if (!currentTask.value?.result?.detections) return []
   return currentTask.value.result.detections.map((detection, index) => ({
     key: index,
-    ...detection
+    ...detection,
+    bbox: `(${detection.bbox[0]}, ${detection.bbox[1]}, ${detection.bbox[2]}, ${detection.bbox[3]})`,
+    confidence: (detection.confidence * 100).toFixed(1) + '%',
   }))
 }
 
 const downloadResult = async (format) => {
   if (!currentTask.value?.id) return
-  
+
   try {
     await detectionStore.downloadResult(currentTask.value.id, format)
   } catch (error) {
@@ -649,19 +583,19 @@ onMounted(() => {
   .class-group {
     max-height: 150px;
   }
-  
+
   .class-actions {
     flex-wrap: wrap;
   }
-  
+
   .result-actions {
     text-align: left;
   }
-  
+
   .result-actions .ant-space {
     width: 100%;
   }
-  
+
   .result-actions .ant-btn {
     flex: 1;
   }
