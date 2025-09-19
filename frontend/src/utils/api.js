@@ -212,37 +212,37 @@ export const apiClient = {
   // Token管理相关接口
   // 创建Token
   createToken(serviceId, tokenData) {
-    return api.post(`/v1/pub_services/${serviceId}/tokens`, tokenData)
+    return api.post(`/v1/tokens/${serviceId}/tokens`, tokenData)
   },
 
   // 获取Token列表
   getTokens(serviceId, params = {}) {
-    return api.get(`/v1/pub_services/${serviceId}/tokens`, { params })
+    return api.get(`/v1/tokens/${serviceId}/tokens`, { params })
   },
 
   // 获取Token详情
   getToken(serviceId, tokenId) {
-    return api.get(`/v1/pub_services/${serviceId}/tokens/${tokenId}`)
+    return api.get(`/v1/tokens/${serviceId}/tokens/${tokenId}`)
   },
 
   // 激活Token
   activateToken(serviceId, tokenId) {
-    return api.put(`/v1/pub_services/${serviceId}/tokens/${tokenId}/activate`)
+    return api.put(`/v1/tokens/${serviceId}/tokens/${tokenId}/activate`)
   },
 
   // 停用Token
   deactivateToken(serviceId, tokenId) {
-    return api.put(`/v1/pub_services/${serviceId}/tokens/${tokenId}/deactivate`)
+    return api.put(`/v1/tokens/${serviceId}/tokens/${tokenId}/deactivate`)
   },
 
   // 撤销Token
   revokeToken(serviceId, tokenId) {
-    return api.delete(`/v1/pub_services/${serviceId}/tokens/${tokenId}`)
+    return api.delete(`/v1/tokens/${serviceId}/tokens/${tokenId}`)
   },
 
   // 永久删除Token
   deleteToken(serviceId, tokenId) {
-    return api.delete(`/v1/pub_services/${serviceId}/tokens/${tokenId}/permanent`)
+    return api.delete(`/v1/tokens/${serviceId}/tokens/${tokenId}/permanent`)
   },
 
   // 统计分析相关接口

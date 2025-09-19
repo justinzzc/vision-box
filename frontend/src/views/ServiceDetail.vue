@@ -182,10 +182,7 @@
                 <div class="simple-chart">
                   <div v-for="(stat, index) in dailyStats.slice(-7)" :key="index" class="chart-bar">
                     <div class="bar-container">
-                      <div 
-                        class="bar" 
-                        :style="{ height: `${(stat.total_calls / maxDailyCalls) * 100}%` }"
-                      ></div>
+                      <div class="bar" :style="{ height: `${(stat.total_calls / maxDailyCalls) * 100}%` }"></div>
                     </div>
                     <div class="bar-label">{{ formatDate(stat.date) }}</div>
                     <div class="bar-value">{{ stat.total_calls }}</div>
@@ -236,12 +233,7 @@
     </div>
 
     <!-- Token管理弹窗 -->
-    <a-modal
-      v-model:open="showTokenModal"
-      title="Token管理"
-      width="800px"
-      :footer="null"
-    >
+    <a-modal v-model:open="showTokenModal" title="Token管理" width="800px" :footer="null">
       <div class="token-management">
         <div class="token-header">
           <a-button type="primary" @click="showCreateTokenModal = true">
@@ -251,13 +243,7 @@
             创建Token
           </a-button>
         </div>
-        <a-table
-          :columns="tokenColumns"
-          :data-source="tokens"
-          :loading="tokensLoading"
-          row-key="id"
-          size="small"
-        >
+        <a-table :columns="tokenColumns" :data-source="tokens" :loading="tokensLoading" row-key="id" size="small">
           <template #status="{ record }">
             <a-tag :color="record.is_valid ? 'green' : 'red'">
               {{ record.is_valid ? '有效' : '无效' }}
@@ -278,12 +264,7 @@
     </a-modal>
 
     <!-- 创建Token弹窗 -->
-    <a-modal
-      v-model:open="showCreateTokenModal"
-      title="创建访问Token"
-      @ok="createToken"
-      :confirm-loading="creatingToken"
-    >
+    <a-modal v-model:open="showCreateTokenModal" title="创建访问Token" @ok="createToken" :confirm-loading="creatingToken">
       <a-form :model="tokenForm" layout="vertical">
         <a-form-item label="Token名称" required>
           <a-input v-model:value="tokenForm.token_name" placeholder="请输入Token名称" />
@@ -302,7 +283,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -485,12 +466,20 @@ const createToken = async () => {
     tokenForm.token_name = ''
     tokenForm.expires_hours = 168
     await loadTokens()
-    
-    // 显示新创建的Token
-    Modal.info({
+
+    // 显示新创建的Token，允许用户复制
+    Modal.success({
       title: 'Token创建成功',
-      content: `新的访问Token: ${response.access_token}`,
-      width: 600
+      content: [
+        '请妥善保存以下访问Token，它只会显示这一次：',
+        `${response.access_token}`,
+        '点击下方按钮可复制到剪贴板。'
+      ].join('\n'),
+      width: 600,
+      okText: '复制Token',
+      onOk: () => {
+        copyToClipboard(response.access_token)
+      }
     })
   } catch (error) {
     console.error('创建Token失败:', error)
@@ -588,6 +577,11 @@ onMounted(async () => {
       loadDailyStats(),
       loadRecentLogs()
     ])
+    
+    // 检查URL参数，如果有tab=tokens则自动打开Token管理弹窗
+    if (route.query.tab === 'tokens') {
+      showTokenModal.value = true
+    }
   } finally {
     loading.value = false
   }

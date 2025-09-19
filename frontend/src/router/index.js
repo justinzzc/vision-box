@@ -64,6 +64,12 @@ const routes = [
         meta: { title: '服务详情' }
       },
       {
+        path: '/services/:id/edit',
+        name: 'ServiceEdit',
+        component: () => import('@/views/ServiceEdit.vue'),
+        meta: { title: '编辑服务' }
+      },
+      {
         path: '/services/:id/docs',
         name: 'ServiceDocs',
         component: () => import('@/views/ServiceDocs.vue'),

@@ -297,7 +297,8 @@ const editService = (serviceId) => {
 const handleAction = async (action, record) => {
   switch (action) {
     case 'tokens':
-      router.push(`/services/${record.id}/tokens`)
+      // 跳转到服务详情页面并通过query参数标识要打开Token管理弹窗
+      router.push(`/services/${record.id}?tab=tokens`)
       break
     case 'docs':
       router.push(`/services/${record.id}/docs`)
