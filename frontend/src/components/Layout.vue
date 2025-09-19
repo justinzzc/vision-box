@@ -96,6 +96,10 @@ const menuRoutes = [
     meta: { title: '历史记录', icon: 'history' }
   },
   {
+    path: '/services',
+    meta: { title: '服务管理', icon: 'service' }
+  },
+  {
     path: '/settings',
     meta: { title: '设置', icon: 'setting' }
   }
@@ -106,6 +110,7 @@ const iconMap = {
   home: '🏠',
   camera: '📷',
   history: '📋',
+  service: '🔧',
   setting: '⚙️'
 }
 

@@ -45,6 +45,7 @@ class User(Base):
     
     # 关系
     detection_tasks = relationship("DetectionTask", back_populates="user", cascade="all, delete-orphan")
+    published_services = relationship("PublishedService", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, email={self.email})>"

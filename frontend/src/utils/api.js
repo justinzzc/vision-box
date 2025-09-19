@@ -1,10 +1,6 @@
 import axios from 'axios'
 import { message } from 'ant-design-vue'
 
-import { useRouter } from 'vue-router'
-
-const router = useRouter()
-
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
@@ -61,7 +57,8 @@ api.interceptors.response.use(
           // 清除token并跳转到登录页
           localStorage.removeItem('token')
           localStorage.removeItem('user')
-          router.push('/login')
+          // 使用window.location进行页面跳转
+          window.location.href = '/login'
           break
         case 403:
           errorMessage = '禁止访问'
@@ -138,11 +135,13 @@ export const apiClient = {
   },
   
   logout() {
-    return api.post('/v1/auth/logout')
+    // 暂时返回成功，后端接口待实现
+    return Promise.resolve({ success: true })
   },
   
   refreshToken() {
-    return api.post('/v1/auth/refresh')
+    // 暂时返回失败，触发重新登录
+    return Promise.reject(new Error('刷新token功能暂未实现'))
   },
   
   getCurrentUser() {
@@ -167,6 +166,109 @@ export const apiClient = {
     return api.get(`/v1/detection/tasks/${taskId}/download/${format}`, {
       responseType: 'blob'
     })
+  },
+
+  // 服务管理相关接口
+  // 创建服务
+  createService(serviceData) {
+    return api.post('/v1/pub_services/', serviceData)
+  },
+
+  // 获取服务列表
+  getServices(params = {}) {
+    return api.get('/v1/pub_services/', { params })
+  },
+
+  // 获取服务详情
+  getService(serviceId) {
+    return api.get(`/v1/pub_services/${serviceId}`)
+  },
+
+  // 更新服务
+  updateService(serviceId, serviceData) {
+    return api.put(`/v1/pub_services/${serviceId}`, serviceData)
+  },
+
+  // 禁用服务
+  disableService(serviceId) {
+    return api.put(`/v1/pub_services/${serviceId}/disable`)
+  },
+
+  // 启用服务
+  enableService(serviceId) {
+    return api.put(`/v1/pub_services/${serviceId}/enable`)
+  },
+
+  // 删除服务
+  deleteService(serviceId) {
+    return api.delete(`/v1/pub_services/${serviceId}`)
+  },
+
+  // 恢复服务
+  restoreService(serviceId) {
+    return api.post(`/v1/pub_services/${serviceId}/restore`)
+  },
+
+  // Token管理相关接口
+  // 创建Token
+  createToken(serviceId, tokenData) {
+    return api.post(`/v1/pub_services/${serviceId}/tokens`, tokenData)
+  },
+
+  // 获取Token列表
+  getTokens(serviceId, params = {}) {
+    return api.get(`/v1/pub_services/${serviceId}/tokens`, { params })
+  },
+
+  // 获取Token详情
+  getToken(serviceId, tokenId) {
+    return api.get(`/v1/pub_services/${serviceId}/tokens/${tokenId}`)
+  },
+
+  // 激活Token
+  activateToken(serviceId, tokenId) {
+    return api.put(`/v1/pub_services/${serviceId}/tokens/${tokenId}/activate`)
+  },
+
+  // 停用Token
+  deactivateToken(serviceId, tokenId) {
+    return api.put(`/v1/pub_services/${serviceId}/tokens/${tokenId}/deactivate`)
+  },
+
+  // 撤销Token
+  revokeToken(serviceId, tokenId) {
+    return api.delete(`/v1/pub_services/${serviceId}/tokens/${tokenId}`)
+  },
+
+  // 永久删除Token
+  deleteToken(serviceId, tokenId) {
+    return api.delete(`/v1/pub_services/${serviceId}/tokens/${tokenId}/permanent`)
+  },
+
+  // 统计分析相关接口
+  // 获取统计概览
+  getStatsOverview() {
+    return api.get('/v1/analytics/overview')
+  },
+
+  // 获取服务统计
+  getServiceStats(serviceId) {
+    return api.get(`/v1/analytics/services/${serviceId}/stats`)
+  },
+
+  // 获取服务调用日志
+  getServiceLogs(serviceId, params = {}) {
+    return api.get(`/v1/analytics/services/${serviceId}/logs`, { params })
+  },
+
+  // 获取日统计
+  getDailyStats(serviceId, params = {}) {
+    return api.get(`/v1/analytics/services/${serviceId}/daily-stats`, { params })
+  },
+
+  // 获取性能指标
+  getPerformanceMetrics(serviceId, params = {}) {
+    return api.get(`/v1/analytics/services/${serviceId}/performance`, { params })
   }
 }
 

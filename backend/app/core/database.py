@@ -149,8 +149,9 @@ async def create_initial_data():
 async def check_db_connection():
     """检查数据库连接"""
     try:
+        from sqlalchemy import text
         async with AsyncSessionLocal() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
         logger.info("数据库连接正常")
         return True
     except Exception as e:

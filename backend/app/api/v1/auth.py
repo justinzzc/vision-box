@@ -88,32 +88,56 @@ class ApiKeyResponse(BaseModel):
 # 依赖函数
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     """获取当前用户"""
+    from loguru import logger
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无效的认证凭据",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    logger.debug(f"开始验证token: {token[:20]}...")
+    
     try:
         payload = verify_token(token)
+        logger.debug(f"Token验证成功，payload: {payload}")
+        
         user_id: str = payload.get("sub")
         if user_id is None:
+            logger.warning("Token中没有找到用户ID")
             raise credentials_exception
-    except Exception:
+            
+        logger.debug(f"从token中获取用户ID: {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Token验证失败: {e}")
         raise credentials_exception
     
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if user is None:
+    try:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if user is None:
+            logger.warning(f"数据库中未找到用户ID: {user_id}")
+            raise credentials_exception
+            
+        logger.debug(f"找到用户: {user.username}, 活跃状态: {user.is_active}")
+        
+        if not user.is_active:
+            logger.warning(f"用户账户已被禁用: {user.username}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="用户账户已被禁用"
+            )
+        
+        logger.debug(f"用户认证成功: {user.username}")
+        return user
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"数据库查询用户失败: {e}")
         raise credentials_exception
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户账户已被禁用"
-        )
-    
-    return user
 
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):

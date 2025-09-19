@@ -157,6 +157,10 @@
                   <eye-outlined />
                   查看详情
                 </a-button>
+                <a-button type="primary" @click="publishAsService">
+                  <api-outlined />
+                  发布为服务
+                </a-button>
               </a-space>
             </div>
           </div>
@@ -185,7 +189,8 @@ import {
   PlayCircleOutlined,
   DownloadOutlined,
   FileExcelOutlined,
-  EyeOutlined
+  EyeOutlined,
+  ApiOutlined
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -442,6 +447,26 @@ const viewFullResult = () => {
   if (currentTask.value?.id) {
     router.push(`/result/${currentTask.value.id}`)
   }
+}
+
+const publishAsService = () => {
+  if (!currentTask.value || currentTask.value.status !== 'completed') {
+    message.error('请先完成检测任务')
+    return
+  }
+
+  // 跳转到服务创建页面，并通过路由参数传递检测参数
+  const params = {
+    model_name: detectionParams.value.model_name,
+    confidence_threshold: detectionParams.value.confidence,
+    detection_classes: detectionParams.value.classes,
+    file_type: uploadedFile.value?.type
+  }
+  
+  router.push({
+    path: '/services/create',
+    query: params
+  })
 }
 
 onMounted(() => {

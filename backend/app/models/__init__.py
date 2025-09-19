@@ -7,6 +7,10 @@
 from .user import User
 from .file_record import FileRecord, FileType
 from .detection_task import DetectionTask, TaskStatus, DetectionType
+from .published_service import PublishedService, ServiceStatus
+from .service_token import ServiceToken
+from .service_call import ServiceCall
+from .service_stats import ServiceStats
 
 # 导出所有模型
 __all__ = [
@@ -15,27 +19,38 @@ __all__ = [
     "FileType",
     "DetectionTask",
     "TaskStatus",
-    "DetectionType"
+    "DetectionType",
+    "PublishedService",
+    "ServiceStatus",
+    "ServiceToken",
+    "ServiceCall",
+    "ServiceStats"
 ]
 
 # 模型注册表（用于数据库初始化）
 MODELS = [
     User,
     FileRecord,
-    DetectionTask
+    DetectionTask,
+    PublishedService,
+    ServiceToken,
+    ServiceCall,
+    ServiceStats
 ]
 
 # 枚举类型注册表
 ENUMS = {
     "FileType": FileType,
     "TaskStatus": TaskStatus,
-    "DetectionType": DetectionType
+    "DetectionType": DetectionType,
+    "ServiceStatus": ServiceStatus
 }
 
 # 模型关系映射
 MODEL_RELATIONSHIPS = {
     "User": {
-        "detection_tasks": "DetectionTask"
+        "detection_tasks": "DetectionTask",
+        "published_services": "PublishedService"
     },
     "FileRecord": {
         "detection_tasks": "DetectionTask"
@@ -43,6 +58,22 @@ MODEL_RELATIONSHIPS = {
     "DetectionTask": {
         "user": "User",
         "file_record": "FileRecord"
+    },
+    "PublishedService": {
+        "user": "User",
+        "service_tokens": "ServiceToken",
+        "service_calls": "ServiceCall",
+        "service_stats": "ServiceStats"
+    },
+    "ServiceToken": {
+        "service": "PublishedService"
+    },
+    "ServiceCall": {
+        "service": "PublishedService",
+        "token": "ServiceToken"
+    },
+    "ServiceStats": {
+        "service": "PublishedService"
     }
 }
 

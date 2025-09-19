@@ -8,18 +8,8 @@
 
 <script setup>
 import { onMounted } from 'vue'
-import { ConfigProvider } from 'ant-design-vue'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { useAuthStore } from './stores/auth'
-
-// 全局样式配置
-const theme = {
-  token: {
-    colorPrimary: '#1890ff',
-    borderRadius: 6,
-    fontSize: 14
-  }
-}
 
 // 初始化认证状态
 const authStore = useAuthStore()

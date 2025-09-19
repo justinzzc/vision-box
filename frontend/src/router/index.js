@@ -44,6 +44,30 @@ const routes = [
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),
         meta: { title: '设置' }
+      },
+      {
+        path: '/services',
+        name: 'Services',
+        component: () => import('@/views/Services.vue'),
+        meta: { title: '服务管理' }
+      },
+      {
+        path: '/services/create',
+        name: 'ServiceCreate',
+        component: () => import('@/views/ServiceCreate.vue'),
+        meta: { title: '创建服务' }
+      },
+      {
+        path: '/services/:id',
+        name: 'ServiceDetail',
+        component: () => import('@/views/ServiceDetail.vue'),
+        meta: { title: '服务详情' }
+      },
+      {
+        path: '/services/:id/docs',
+        name: 'ServiceDocs',
+        component: () => import('@/views/ServiceDocs.vue'),
+        meta: { title: 'API文档' }
       }
     ]
   },

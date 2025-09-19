@@ -363,6 +363,8 @@ async def list_detection_tasks(
     """获取检测任务列表"""
     from sqlalchemy import select, func
     
+    logger.info(f"用户 {current_user.username} 获取检测任务列表, 页码: {page}, 每页数量: {page_size}, 状态过滤: {status_filter}, 检测类型过滤: {detection_type_filter}, 搜索关键词: {search}")
+    
     # 构建基础查询
     query = select(DetectionTask).where(DetectionTask.user_id == current_user.id)
     

@@ -10,6 +10,10 @@ from .files import router as files_router
 from .detection import router as detection_router
 from .users import router as users_router
 from .system import router as system_router
+from .services import router as services_router
+from .tokens import router as tokens_router
+from .service_gateway import router as service_gateway_router
+from .analytics import router as analytics_router
 
 # 创建v1 API路由
 api_router = APIRouter()
@@ -45,13 +49,33 @@ api_router.include_router(
     tags=["系统管理"]
 )
 
-# 添加历史记录路由别名（兼容前端）
+# 注册services主路由
 api_router.include_router(
-    detection_router,
-    prefix="",
-    tags=["历史记录"],
-    include_in_schema=False
+    services_router,
+    prefix="/pub_services",
+    tags=["服务发布"]
 )
+
+# 注册tokens路由，使用独立的前缀避免冲突
+api_router.include_router(
+    tokens_router,
+    prefix="/tokens",
+    tags=["Token管理"]
+)
+
+api_router.include_router(
+    service_gateway_router,
+    prefix="/gateway",
+    tags=["服务网关"]
+)
+
+api_router.include_router(
+    analytics_router,
+    prefix="/analytics",
+    tags=["统计分析"]
+)
+
+# 历史记录路由别名已移除，避免路由冲突
 
 # API v1信息
 API_V1_INFO = {
@@ -62,7 +86,11 @@ API_V1_INFO = {
         "files": "文件上传和管理接口",
         "detection": "视觉检测相关接口",
         "users": "用户管理接口",
-        "system": "系统管理接口"
+        "system": "系统管理接口",
+        "services": "服务发布和管理接口",
+        "tokens": "Token管理接口",
+        "service_gateway": "服务网关接口",
+        "analytics": "统计分析接口"
     }
 }
 
