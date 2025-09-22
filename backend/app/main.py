@@ -30,6 +30,7 @@ from app.core.config import get_settings
 from app.core.database import init_db
 from app.api import api_router
 from app.core.exceptions import setup_exception_handlers
+from app.core.middleware import ServiceAuthMiddleware
 
 settings = get_settings()
 
@@ -102,6 +103,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 添加服务认证中间件（必须在CORS之后）
+app.add_middleware(ServiceAuthMiddleware)
 
 # 设置异常处理
 setup_exception_handlers(app)

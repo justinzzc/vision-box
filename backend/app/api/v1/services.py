@@ -91,7 +91,7 @@ class ServiceCreateResponse(BaseModel):
 # 工具函数
 def generate_api_endpoint(service_id: str) -> str:
     """生成API端点"""
-    return f"/api/pubbed_services/{service_id}/detect"
+    return f"/api/v1/pubbed_services/{service_id}/detect"
 
 
 async def get_service_by_id(service_id: str, db: AsyncSession, user: User = None, include_deleted: bool = False) -> PublishedService:

@@ -63,10 +63,11 @@ api_router.include_router(
     tags=["Token管理"]
 )
 
+# 统一使用pubbed_services路由，用于第三方API调用
 api_router.include_router(
     service_gateway_router,
-    prefix="/gateway",
-    tags=["服务网关"]
+    prefix="/pubbed_services",
+    tags=["发布服务API"]
 )
 
 api_router.include_router(

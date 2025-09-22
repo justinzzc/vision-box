@@ -108,6 +108,14 @@ async def service_detect(
         service = await get_service_from_request(request)
         token = await get_token_from_request(request)
         
+        # 验证URL中的service_id与实际服务ID是否一致
+        if service.id != service_id:
+            logger.warning(f"URL中的service_id({service_id})与实际服务ID({service.id})不匹配")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="服务ID不匹配"
+            )
+        
         # 验证文件格式
         if not validate_file_format(file.filename, service.get_allowed_formats()):
             raise HTTPException(
@@ -128,10 +136,27 @@ async def service_detect(
         
         # 保存文件
         file_service = FileService()
-        file_record = await file_service.save_uploaded_file(
+        file_result = file_service.process_uploaded_file(
             file_content=file_content,
             filename=file.filename,
-            content_type=file.content_type
+            create_thumbnail=True
+        )
+        
+        # 创建文件记录对象
+        file_record = FileRecord(
+            filename=file_result["filename"],
+            stored_filename=file_result["stored_filename"],
+            file_path=file_result["file_path"],
+            file_type=file_result["file_type"],
+            file_size=file_result["file_size"],
+            mime_type=file_result["mime_type"],
+            file_hash=file_result["file_hash"],
+            checksum=file_result["checksum"],
+            width=file_result["media_info"].get("width"),
+            height=file_result["media_info"].get("height"),
+            duration=file_result["media_info"].get("duration"),
+            fps=file_result["media_info"].get("fps"),
+            uploaded_at=file_result["uploaded_at"]
         )
         
         # 添加文件记录到数据库
@@ -152,18 +177,16 @@ async def service_detect(
         
         # 根据文件类型选择检测方法
         if file_record.file_type == "image":
-            result = await detection_service.detect_image(
-                file_path=file_record.file_path,
+            result = detection_service.detect_objects(
+                image_path=file_record.file_path,
                 model_name=service.model_name,
-                confidence=service.confidence_threshold,
-                classes=service.get_detection_classes()
+                confidence_threshold=service.confidence_threshold
             )
         elif file_record.file_type == "video":
             result = await detection_service.detect_video(
-                file_path=file_record.file_path,
+                video_path=file_record.file_path,
                 model_name=service.model_name,
-                confidence=service.confidence_threshold,
-                classes=service.get_detection_classes()
+                confidence_threshold=service.confidence_threshold
             )
         else:
             raise HTTPException(
@@ -215,7 +238,7 @@ async def service_detect(
         
         logger.info(
             f"服务 {service.service_name} 检测完成: {result.get('total_detections', 0)} 个对象, "
-            f"处理时间: {processing_time:.2f}s"
+            f"处理时间: {processing_time:.2f}s, Token: {token.token_name}"
         )
         
         return ServiceDetectionResponse(
@@ -257,7 +280,7 @@ async def service_detect(
                 })
             )
         
-        logger.error(f"服务检测失败: {str(e)}")
+        logger.error(f"服务检测失败: {str(e)}, Service: {service_id}")
         
         return ServiceDetectionResponse(
             success=False,

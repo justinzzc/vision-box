@@ -85,7 +85,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self.rate_limiter = RateLimiter()
-        self.service_paths = ["/api/services/", "/api/v1/services/"]
+        self.service_paths = ["/api/v1/services/", "/api/v1/pubbed_services/"]
     
     async def dispatch(self, request: Request, call_next):
         """处理请求"""
@@ -202,12 +202,12 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     def _extract_service_id(self, path: str) -> Optional[str]:
         """从路径中提取服务ID"""
         try:
-            # 路径格式: /api/services/{service_id}/detect
+            # 路径格式: /api/services/{service_id}/detect 或 /api/pubbed_services/{service_id}/detect
             parts = path.strip("/").split("/")
-            if len(parts) >= 3 and parts[1] == "services":
+            if len(parts) >= 3 and parts[1] in ["services", "pubbed_services"]:
                 return parts[2]
-            # v1路径格式: /api/v1/services/{service_id}/detect
-            elif len(parts) >= 4 and parts[1] == "v1" and parts[2] == "services":
+            # v1路径格式: /api/v1/services/{service_id}/detect 或 /api/v1/pubbed_services/{service_id}/detect
+            elif len(parts) >= 4 and parts[1] == "v1" and parts[2] in ["services", "pubbed_services"]:
                 return parts[3]
         except (IndexError, ValueError):
             pass
