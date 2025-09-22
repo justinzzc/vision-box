@@ -85,7 +85,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self.rate_limiter = RateLimiter()
-        self.service_paths = ["/api/v1/services/", "/api/v1/pubbed_services/"]
+        self.service_paths = ["/api/v1/pubbed_services/"] # "/api/v1/services/", 
     
     async def dispatch(self, request: Request, call_next):
         """处理请求"""
